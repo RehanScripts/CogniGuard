@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Phase 1+: run migrations on start when configured and alembic is present.
+if [ "${RUN_MIGRATIONS_ON_START:-false}" = "true" ] && [ -f "alembic.ini" ]; then
+  echo "[entrypoint] applying alembic migrations..."
+  alembic upgrade head
+fi
+
+# Phase 5/8+: seed demo personas + active policy when present.
+if [ "${RUN_SEED_ON_START:-false}" = "true" ] && [ -f "scripts/seed_demo.py" ]; then
+  echo "[entrypoint] seeding demo data..."
+  python -m scripts.seed_demo || echo "[entrypoint] seed step skipped/failed (non-fatal)"
+fi
+
+echo "[entrypoint] starting uvicorn on :8000"
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000
