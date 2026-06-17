@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field
 
 from .behavior import BehaviorPayload
 
+# Canonical column orders the saved model artifacts were fit on (training/, Phase 5) —
+# imported rather than redefined so the live feature vector can never silently drift
+# from what's actually registered in model_registry.
+from training.train_isolation_forest import BEHAVIOR_COLUMNS
+from training.train_xgboost import FEATURE_COLUMNS
+
 
 class BehaviorFeatures(BaseModel):
     typing_speed: float = 0.0
@@ -63,6 +69,27 @@ class FeatureBundle(BaseModel):
     txn: TxnFeatures = Field(default_factory=TxnFeatures)
     context: ContextFeatures = Field(default_factory=ContextFeatures)
     cold_start: bool = False  # no per-user profile/baseline yet → bias to verify
+
+    def behavior_vector(self) -> list[float]:
+        """9-dim vector in BEHAVIOR_COLUMNS order — matches the IsolationForest artifact."""
+        return [getattr(self.behavior, name) for name in BEHAVIOR_COLUMNS]
+
+    def xgb_features(self, behavior_score: float) -> dict[str, float]:
+        """Dict with the live Behavior_Score substituted in for the training-time
+        neutral placeholder (training/train_xgboost.py). Built from FEATURE_COLUMNS so
+        a column the model expects can never silently go missing."""
+        values = {
+            "amount": self.txn.amount,
+            "amount_zscore": self.txn.amount_zscore,
+            "velocity_1h": float(self.txn.velocity_1h),
+            "velocity_24h": float(self.txn.velocity_24h),
+            "amount_sum_24h": self.txn.amount_sum_24h,
+            "is_new_payee": float(self.txn.is_new_payee),
+            "beneficiary_risk": self.txn.beneficiary_risk,
+            "odd_time": float(self.txn.odd_time),
+            "behavior_score": behavior_score,
+        }
+        return {col: values[col] for col in FEATURE_COLUMNS}
 
 
 class FeatureReadContext(BaseModel):

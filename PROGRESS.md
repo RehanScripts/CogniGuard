@@ -3,9 +3,12 @@
 Living tracker + onboarding for the team. **Read this first**, then the four source docs.
 Keep this file up to date: when you finish a phase, tick it here in the same PR.
 
-> **Last verified:** Phase 5 complete on `main`. Stack runs end-to-end:
-> `docker compose up` → infra + gateway healthy → Flink feature job populates Redis + S3
-> → `load_datasets` stages CMU/HMOG/INB/TXN parquet → IF + XGBoost train and register.
+> **Last verified:** Phase 6 complete on `phase-6-scoring-service` (branched from
+> `phase-5-feature-reader` — neither is merged to `main` yet; `main` still only has
+> Phase 0–4). Stack runs end-to-end: `docker compose up` → infra + gateway healthy →
+> Flink feature job populates Redis + S3 → `load_datasets` stages CMU/HMOG/INB/TXN
+> parquet → IF + XGBoost train and register → scoring service stacks IF→XGBoost into a
+> single `ScoreResult` with amplifiers + reason codes + graceful fallback.
 
 ---
 
@@ -103,7 +106,7 @@ Status: ✅ done · 🚧 in progress · ⬜ todo. Update the row when you pick u
 | 3 | Kafka topics + event production | ✅ | — | merged | 6 topics created; produce→consume round-trip |
 | 4 | Flink feature engine (Kafka→Redis+S3) | ✅ | — | merged | job RUNNING → Redis keys populate + S3 mirror; `test_windows`/`test_sinks` pass |
 | 5 | Feature reader (Redis-only) + dataset loaders + offline training | ✅ | — | phase-5-feature-reader | `read_bundle` hits Redis only; IF + XGBoost artifacts in S3 + registry |
-| 6 | Scoring service (IF → XGBoost stacked) + explain + registry | ⬜ | | | stacked score + reason codes; degraded fallback; amplifier math |
+| 6 | Scoring service (IF → XGBoost stacked) + explain + registry | ✅ | — | phase-6-scoring-service | stacked score + reason codes; degraded fallback; amplifier math |
 | 7 | Decision engine + adaptive auth + risk×action + txn-fraud layer | ⬜ | | | band→action; cold-start→verify; controls fire |
 | 8 | Gateway flows: integrity, login, step-up, payment, JWT, hardening, consent, audit | ⬜ | | | `/auth/login` + `/payment/score` return `DecisionResponse` |
 | 9 | Continuous re-scoring + SOC WS broadcaster + case mgmt + RTBF/quarantine jobs | ⬜ | | | `/behavior/ingest` + `/ws/soc-feed` live |
@@ -163,10 +166,14 @@ models/         local mirror of S3 model artifacts (gitignored)
 - **`training/` package:** added a `./training:/app/training` bind mount on the `gateway` service so `python -m training.xxx` resolves from `/app` — `training/` isn't part of the `gateway` image build (different top-level dir), it only works via this dev mount. Training scripts reuse `app.db`/`app.s3_client`/`app.config` directly (same container, same Python env) rather than re-implementing clients — that's intentional, not a violation of the Redis-only rule (that rule is about the *scoring* hot path, not offline training).
 - **Phase 5 model quality is a known gap, not a script bug:** `train_isolation_forest` prints **EER 0.29** against TXN_HISTORY/CMU (target G6 ≤ 0.10) — it's validated honestly against the *reduced* 4-dim typing vector the live system actually ships (`typing_speed`/`key_latency_avg`/`typing_rhythm_std`/`hold_time_avg`), not the richer 31-dim raw CMU vectors papers usually report ~1–10% EER on. `train_xgboost` found **0 positives** from the PRD heuristic label on the 100-row TXN_HISTORY_UPI_FIN sample (mostly single-transaction payers → cold-start `amount_zscore=0` → heuristic never fires) — AUC is `None`. Both scripts run end-to-end and register `production` models (mechanically satisfies the Phase 5 acceptance check), but neither model is meaningfully trained yet. Revisit in Phase 6/12: either loosen the heuristic, get a larger/labeled TXN sample, or accept IF/XGBoost as placeholders until real data arrives — flag to whoever owns Phase 6.
 - **No real join between `INB_REQ_LOG` and `TXN_HISTORY_UPI_FIN`:** the two sample extracts use disjoint user/account id namespaces, so `train_xgboost` does *not* join INB session features in (it sets a neutral `behavior_score=0.5` constant instead, documented in the script's docstring). A live system would join on the same `user_id` once both come from `behavior_events`/`transaction_events`.
+- **`behavior:{id}:baseline` naming mismatch (pre-existing Phase 4 gap, surfaced in Phase 6):** Flink's `update_from_behavior_event` (`flink-jobs/sinks.py`, `BEHAVIOR_FEATURES`) only tracks 5 abbreviated dims — `typing_speed`, `key_latency`, `swipe_angle`, `touch_pressure`, `mouse_velocity` — not the 9 `BehaviorFeatures` names `gateway/app/schemas/features.py` defines (`key_latency_avg`, `swipe_angle_dev`, `touch_pressure_avg`, `mouse_velocity_mean`, plus `typing_rhythm_std`/`hold_time_avg`/`swipe_velocity_norm`/`acceleration_variance` aren't tracked by Flink's baseline at all). `gateway/app/scoring/isolation_forest.py`'s `load_baseline`/`_BASELINE_KEY_MAP` defensively maps the 5 overlapping dims and passes the other 4 through unstandardized rather than crashing or guessing — not fixed here since `flink-jobs/` is a separate deployment unit and renaming its keys risks breaking Phase 4's merged tests. Worth a follow-up ticket to widen Flink's baseline tracking to the full 9-dim vector.
+- **Phase 6 scoring service is feature-complete but unwired:** `gateway/app/scoring/{isolation_forest,xgboost_model,registry,amplifiers,explain,stack}.py` implement the stacked IF→XGBoost score, the weighted-ensemble alternative, Dynamic Risk Amplifiers, the deterministic reason-code explainer, and NFR-4 fallback — but `Registry` is not yet instantiated anywhere in `main.py`, and no router calls `stack.score()` yet. That wiring (plus the real `policy.py` loader `stack.score()`'s `policy` dict currently stands in for) is Phase 7/8's job, per the dependency graph.
 
 ---
 
 ## 9. Open items for upcoming phases
 
-- **Phase 6:** improve label quality (see gotcha above) before trusting `xgboost_txn`'s output; per-user `behavior:{id}:baseline` (already written by Flink) should do the real biometric discrimination — the global IF prior is only the cold-start fallback, not expected to hit G6 alone.
+- **Phase 6 done, not yet wired in** (see gotcha above) — Phase 7's `services/policy.py` supplies the real `policy` dict, Phase 8's gateway flows instantiate `Registry` and call `stack.score()`.
+- **Phase 6 inherits the Phase 5 model-quality gap:** improve label quality before trusting `xgboost_txn`'s output in a real demo; per-user `behavior:{id}:baseline` should do the real biometric discrimination once it tracks the full 9-dim vector (see gotcha above) — the global IF prior is only the cold-start fallback, not expected to hit G6 alone.
+- **`phase-5-feature-reader` and `phase-6-scoring-service` are not merged into `main` yet** — `main` currently only has Phase 0–4. Whoever merges should land Phase 5 before Phase 6 (Phase 6 branches from Phase 5, not from `main`).
 - **Auto-submit Flink job** (gateway startup or a flink-init service) — currently manual.
