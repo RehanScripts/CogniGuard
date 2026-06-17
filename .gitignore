@@ -23,9 +23,9 @@ dist/
 *.local
 
 # --- ML model artifacts (tracked in S3, not git) ---
-models/*.joblib
-models/*.xgb
-models/*.json
+models/**/*.joblib
+models/**/*.xgb
+models/**/*.json
 !models/.gitkeep
 
 # --- Local infra / data volumes ---

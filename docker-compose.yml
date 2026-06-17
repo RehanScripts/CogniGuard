@@ -104,6 +104,7 @@ services:
     volumes:
       - "./gateway:/app"          # dev: live source + alembic autogenerate output
       - "./flink-jobs:/flink-jobs:ro"   # dev: run windows/sinks unit tests here
+      - "./training:/app/training"     # dev: offline training scripts (Phase 5+)
       - "./models:/models"
       - "./SAMPLE_DATA:/data/sample:ro"
     depends_on:

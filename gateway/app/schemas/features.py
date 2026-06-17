@@ -6,6 +6,8 @@ Scoring helpers (behavior_vector / xgb_features) are added in Phase 6.
 
 from pydantic import BaseModel, Field
 
+from .behavior import BehaviorPayload
+
 
 class BehaviorFeatures(BaseModel):
     typing_speed: float = 0.0
@@ -61,3 +63,18 @@ class FeatureBundle(BaseModel):
     txn: TxnFeatures = Field(default_factory=TxnFeatures)
     context: ContextFeatures = Field(default_factory=ContextFeatures)
     cold_start: bool = False  # no per-user profile/baseline yet → bias to verify
+
+
+class FeatureReadContext(BaseModel):
+    """Input to `feature_reader.read_bundle` — the signed BehaviorPayload plus whatever
+    transaction/device/geo context the calling router (login/payment/behavior-ingest,
+    Phase 7/8) already has on hand. read_bundle resolves everything else from Redis."""
+
+    behavior: BehaviorPayload
+    device_id: str | None = None
+    geo_lat: float | None = None
+    geo_lon: float | None = None
+    amount: float = 0.0
+    beneficiary_id: str | None = None
+    vpn: bool = False
+    asn: int | None = None
