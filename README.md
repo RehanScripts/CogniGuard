@@ -12,6 +12,7 @@ budgets (login p95 < 300 ms, payment p95 < 500 ms).
 
 | Doc | Purpose |
 |-----|---------|
+| [`PROGRESS.md`](PROGRESS.md) | **Start here** — build status, new-laptop setup, team workflow, phase tracker. |
 | [`PRD.md`](PRD.md) | The *what* & *why* — requirements, goals, demo scenarios. **Authoritative.** |
 | [`System Architecture.md`](System%20Architecture.md) | The *how it fits together* — components, schema, topic/payload contracts, flows. |
 | [`Implementation.md`](Implementation.md) | The *step-by-step build order* — phases 0–12, file-by-file. |
