@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,19 @@ logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger("cogniguard.gateway")
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Ensure Kafka topics exist (idempotent, best-effort — never block startup).
+    try:
+        from scripts.create_topics import create_topics
+
+        created = create_topics()
+        logger.info("kafka topics ready (created: %s)", created or "all present")
+    except Exception as exc:  # broker not up yet / transient
+        logger.warning("topic creation skipped: %s", exc)
+    yield
+
+
 def _db_ping() -> bool:
     try:
         with engine.connect() as conn:
@@ -24,7 +38,7 @@ def _db_ping() -> bool:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="CogniGuard Gateway", version="0.1.0")
+    app = FastAPI(title="CogniGuard Gateway", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://localhost:5174"],

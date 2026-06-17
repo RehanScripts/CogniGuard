@@ -66,4 +66,6 @@ models/         local mirror of S3 model artifacts
 
 - [x] Phase 0 — scaffold, Docker Compose topology, gateway skeleton + `/health`
 - [x] Phase 1 — PostgreSQL OLTP schema (16 tables) + Alembic
-- [ ] Phases 2–12 — see [`Implementation.md`](Implementation.md)
+- [x] Phase 2 — Pydantic canonical contracts (payloads, scoring, decision, topics)
+- [x] Phase 3 — Kafka topics + event production (6 topics, fire-and-forget producers)
+- [ ] Phases 4–12 — see [`Implementation.md`](Implementation.md)
