@@ -37,6 +37,9 @@ curl -s http://localhost:8000/health | jq .
 # Phase 1+: schema
 docker compose exec gateway alembic upgrade head
 
+# Phase 4: submit the Flink feature-engine job (Kafka → Redis + S3)
+docker compose exec flink-jobmanager flink run -d -py /jobs/feature_engine.py
+
 # UI services (Phase 11):
 docker compose --profile ui up --build
 ```
@@ -68,4 +71,5 @@ models/         local mirror of S3 model artifacts
 - [x] Phase 1 — PostgreSQL OLTP schema (16 tables) + Alembic
 - [x] Phase 2 — Pydantic canonical contracts (payloads, scoring, decision, topics)
 - [x] Phase 3 — Kafka topics + event production (6 topics, fire-and-forget producers)
-- [ ] Phases 4–12 — see [`Implementation.md`](Implementation.md)
+- [x] Phase 4 — Flink feature engine (Kafka → Redis online features + S3 raw mirror)
+- [ ] Phases 5–12 — see [`Implementation.md`](Implementation.md)

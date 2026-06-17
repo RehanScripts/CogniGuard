@@ -36,6 +36,7 @@ def _now_iso() -> str:
 
 def build_login_event(
     *,
+    user_id: str = "",
     session_id: str,
     device_id: str,
     ip: str = "",
@@ -46,6 +47,7 @@ def build_login_event(
     ts: str | None = None,
 ) -> dict:
     return LoginEventMsg(
+        user_id=user_id,
         session_id=session_id,
         device_id=device_id,
         ip=ip,
@@ -58,11 +60,12 @@ def build_login_event(
 
 
 def emit_login_event(*, user_id: str, **kwargs) -> None:
-    kafka_client.produce(T_LOGIN, key=user_id, value=build_login_event(**kwargs))
+    kafka_client.produce(T_LOGIN, key=user_id, value=build_login_event(user_id=user_id, **kwargs))
 
 
 def build_behavior_event(
     *,
+    user_id: str = "",
     session_id: str,
     typing_speed: float = 0.0,
     typing_rhythm: list[float] | None = None,
@@ -73,6 +76,7 @@ def build_behavior_event(
     ts: str | None = None,
 ) -> dict:
     return BehaviorEvent(
+        user_id=user_id,
         session_id=session_id,
         typing_speed=typing_speed,
         typing_rhythm=typing_rhythm or [],
@@ -85,11 +89,14 @@ def build_behavior_event(
 
 
 def emit_behavior_event(*, user_id: str, **kwargs) -> None:
-    kafka_client.produce(T_BEHAVIOR, key=user_id, value=build_behavior_event(**kwargs))
+    kafka_client.produce(
+        T_BEHAVIOR, key=user_id, value=build_behavior_event(user_id=user_id, **kwargs)
+    )
 
 
 def build_device_event(
     *,
+    device_id: str = "",
     device_fingerprint: str,
     os: str = "",
     app_version: str = "",
@@ -98,6 +105,7 @@ def build_device_event(
     ts: str | None = None,
 ) -> dict:
     return DeviceEvent(
+        device_id=device_id,
         device_fingerprint=device_fingerprint,
         os=os,
         app_version=app_version,
@@ -108,11 +116,14 @@ def build_device_event(
 
 
 def emit_device_event(*, device_id: str, **kwargs) -> None:
-    kafka_client.produce(T_DEVICE, key=device_id, value=build_device_event(**kwargs))
+    kafka_client.produce(
+        T_DEVICE, key=device_id, value=build_device_event(device_id=device_id, **kwargs)
+    )
 
 
 def build_transaction_event(
     *,
+    user_id: str = "",
     transaction_id: str,
     amount: float,
     beneficiary_id: str | None = None,
@@ -121,6 +132,7 @@ def build_transaction_event(
     ts: str | None = None,
 ) -> dict:
     return TransactionEvent(
+        user_id=user_id,
         transaction_id=transaction_id,
         amount=amount,
         beneficiary_id=beneficiary_id,
@@ -131,7 +143,9 @@ def build_transaction_event(
 
 
 def emit_transaction_event(*, user_id: str, **kwargs) -> None:
-    kafka_client.produce(T_TRANSACTION, key=user_id, value=build_transaction_event(**kwargs))
+    kafka_client.produce(
+        T_TRANSACTION, key=user_id, value=build_transaction_event(user_id=user_id, **kwargs)
+    )
 
 
 # --- output topics --------------------------------------------------------------

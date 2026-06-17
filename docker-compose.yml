@@ -71,9 +71,11 @@ services:
     restart: "no"
 
   flink-jobmanager:
-    image: flink:1.18
+    build: ./flink-jobs
+    image: cogniguard-flink:1.18
     command: jobmanager
     ports: ["8081:8081"]
+    env_file: [.env]
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
@@ -83,8 +85,10 @@ services:
       redis: { condition: service_healthy }
 
   flink-taskmanager:
-    image: flink:1.18
+    build: ./flink-jobs
+    image: cogniguard-flink:1.18
     command: taskmanager
+    env_file: [.env]
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
@@ -99,6 +103,7 @@ services:
     ports: ["8000:8000"]
     volumes:
       - "./gateway:/app"          # dev: live source + alembic autogenerate output
+      - "./flink-jobs:/flink-jobs:ro"   # dev: run windows/sinks unit tests here
       - "./models:/models"
       - "./SAMPLE_DATA:/data/sample:ro"
     depends_on:

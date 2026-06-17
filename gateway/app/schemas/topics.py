@@ -23,6 +23,7 @@ ALL_TOPICS = INPUT_TOPICS + OUTPUT_TOPICS
 
 
 class BehaviorEvent(BaseModel):  # key: user_id
+    user_id: str = ""  # denormalized into the value for self-contained routing
     session_id: str
     typing_speed: float = 0.0
     typing_rhythm: list[float] = Field(default_factory=list)  # inter-key latency vector
@@ -34,6 +35,7 @@ class BehaviorEvent(BaseModel):  # key: user_id
 
 
 class DeviceEvent(BaseModel):  # key: device_id
+    device_id: str = ""  # denormalized into the value for self-contained routing
     device_fingerprint: str
     os: str = ""
     app_version: str = ""
@@ -43,6 +45,7 @@ class DeviceEvent(BaseModel):  # key: device_id
 
 
 class LoginEventMsg(BaseModel):  # key: user_id
+    user_id: str = ""  # denormalized into the value for self-contained routing
     session_id: str
     device_id: str
     ip: str = ""
@@ -54,6 +57,7 @@ class LoginEventMsg(BaseModel):  # key: user_id
 
 
 class TransactionEvent(BaseModel):  # key: user_id
+    user_id: str = ""  # denormalized into the value for self-contained routing
     transaction_id: str
     amount: float
     beneficiary_id: str | None = None
