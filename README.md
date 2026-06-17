@@ -65,5 +65,5 @@ models/         local mirror of S3 model artifacts
 ## Build status
 
 - [x] Phase 0 — scaffold, Docker Compose topology, gateway skeleton + `/health`
-- [ ] Phase 1 — PostgreSQL OLTP schema (16 tables) + Alembic
+- [x] Phase 1 — PostgreSQL OLTP schema (16 tables) + Alembic
 - [ ] Phases 2–12 — see [`Implementation.md`](Implementation.md)

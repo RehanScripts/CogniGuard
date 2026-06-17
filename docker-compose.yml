@@ -98,6 +98,7 @@ services:
     env_file: [.env]
     ports: ["8000:8000"]
     volumes:
+      - "./gateway:/app"          # dev: live source + alembic autogenerate output
       - "./models:/models"
       - "./SAMPLE_DATA:/data/sample:ro"
     depends_on:
