@@ -9,7 +9,7 @@ WORKDIR /app
 
 # App source + install (package build needs app/ present)
 COPY . .
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir ".[dev]"
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 

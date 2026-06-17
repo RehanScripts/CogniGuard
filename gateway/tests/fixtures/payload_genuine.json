@@ -1,0 +1,38 @@
+{
+  "channel": "web",
+  "source": "web_sdk",
+  "nonce": "demo-nonce-0001",
+  "seq": 1,
+  "ts": "2026-06-17T12:00:00Z",
+  "integrity_sig": "deadbeef",
+  "device": {
+    "fingerprint": "known-mumbai-device",
+    "ua": "Mozilla/5.0",
+    "screen": "1920x1080",
+    "timezone": "Asia/Kolkata",
+    "language": "en-IN",
+    "platform": "web",
+    "is_rooted": false,
+    "is_emulator": false
+  },
+  "action": { "type": "LOGIN" },
+  "keystroke": {
+    "events": [
+      { "key": "x", "down": 12.0, "up": 98.0 },
+      { "key": "x", "down": 210.0, "up": 305.0 },
+      { "key": "x", "down": 430.0, "up": 520.0 }
+    ],
+    "field_id": "username"
+  },
+  "mouse": {
+    "moves": [ { "x": 1, "y": 2, "t": 5 }, { "x": 8, "y": 9, "t": 25 } ],
+    "clicks": [ { "t": 120, "dur": 40 } ]
+  },
+  "context": {
+    "submitted_at": "2026-06-17T12:00:01Z",
+    "page": "login",
+    "pre_txn_dwell_ms": 0,
+    "session_age_s": 0,
+    "correction_rate": 0.0
+  }
+}
