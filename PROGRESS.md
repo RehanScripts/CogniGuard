@@ -3,15 +3,17 @@
 Living tracker + onboarding for the team. **Read this first**, then the four source docs.
 Keep this file up to date: when you finish a phase, tick it here in the same PR.
 
-> **Last verified:** Phase 7 complete on `phase-6-scoring-service` (branched from
+> **Last verified:** Phase 8 complete on `phase-6-scoring-service` (branched from
 > `phase-5-feature-reader` — none of the three are merged to `main` yet; `main` still
-> only has Phase 0–4). Stack runs end-to-end through Phase 6 as before; Phase 7 adds the
-> decision layer on top: `policy.py` supplies the real `policy` dict (defaults +
-> optional live Redis overlay), `decision_engine.decide()` turns a `ScoreResult.risk_band`
-> + action stakes into `allow`/`verify`/`block` via the PRD §10.2 risk×action matrix,
-> `adaptive_auth.select_factor()` picks the lightest assurance-clearing step-up factor,
-> and `txn_fraud_layer.resolve_controls()` fires Cooling/Reconfirm/Manual-Amount/Coercion
-> controls. All four are pure-logic, unwired into routers — that's Phase 8.
+> only has Phase 0–4). The hot paths are wired end-to-end for the first time: a human
+> can `curl /api/v1/auth/register` → `/consent` → `/login` (real Argon2id + nonce/HMAC/
+> seq integrity verify + Track A IP/device hardening + stacked IF→XGBoost scoring +
+> Phase 7's decision engine + JWT issuance) and `/api/v1/payment/score` (Bearer-
+> authenticated, beneficiary find-or-create, amplifiers, txn-fraud-layer controls) and
+> get a real `DecisionResponse`/`PaymentScoreResponse` back. `GET /api/v1/risk/session/{id}`
+> and the `/api/v1/admin/{events,users/{id},policy}` subset are live too. Verified by
+> hand against the live stack (manual curl/httpx round-trips) in addition to the
+> automated suite (98 tests passing).
 
 ---
 
@@ -111,7 +113,7 @@ Status: ✅ done · 🚧 in progress · ⬜ todo. Update the row when you pick u
 | 5 | Feature reader (Redis-only) + dataset loaders + offline training | ✅ | — | phase-5-feature-reader | `read_bundle` hits Redis only; IF + XGBoost artifacts in S3 + registry |
 | 6 | Scoring service (IF → XGBoost stacked) + explain + registry | ✅ | — | phase-6-scoring-service | stacked score + reason codes; degraded fallback; amplifier math |
 | 7 | Decision engine + adaptive auth + risk×action + txn-fraud layer | ✅ | — | phase-6-scoring-service | band→action; cold-start→verify; controls fire |
-| 8 | Gateway flows: integrity, login, step-up, payment, JWT, hardening, consent, audit | ⬜ | | | `/auth/login` + `/payment/score` return `DecisionResponse` |
+| 8 | Gateway flows: integrity, login, step-up, payment, JWT, hardening, consent, audit | ✅ | — | phase-6-scoring-service | `/auth/login` + `/payment/score` return `DecisionResponse` |
 | 9 | Continuous re-scoring + SOC WS broadcaster + case mgmt + RTBF/quarantine jobs | ⬜ | | | `/behavior/ingest` + `/ws/soc-feed` live |
 | 10 | behavior-sdk (TypeScript) | ⬜ | | | capture + signed payload; SDK tests |
 | 11 | web-app + bank-dashboard | ⬜ | | | full demo via `--profile ui` |
@@ -174,13 +176,30 @@ models/         local mirror of S3 model artifacts (gitignored)
 - **No `policies` table — `policy.py` is Redis-cached, not DB-backed:** `Implementation.md` describes `policy.py`'s `active_policy()` as "DB-backed single active row, else defaults," but the canonical 16-table OLTP schema (PRD §17.1) has no `policies` table, and Phase 8's file list doesn't add one either. Phase 7 implements `gateway/app/services/policy.py` as `DEFAULT_POLICY` (a complete dict: thresholds, action_sensitivity, amplifiers, stepup ladder, cooling_off, hardening) optionally deep-merged with a `policy:active` JSON blob read from Redis — the same small-live-config role Redis already plays for nonces/locks/counters, and what lets an admin policy edit (Phase 8's `PUT /admin/policy`) take effect live without a restart or a Postgres read on the hot path. `active_policy()` never raises — missing/empty/malformed/unreachable Redis all fall back to defaults. **Whoever builds Phase 8's `/admin/policy` endpoint**: write the overlay to the `policy:active` Redis key (see `POLICY_REDIS_KEY` in `policy.py`), not a new table.
 - **Phase 7 decision layer is pure logic, not yet called by any router:** `gateway/app/services/{decision_engine,adaptive_auth,txn_fraud_layer}.py` are fully implemented and tested (`tests/test_decision.py`, `tests/test_adaptive_auth.py`, `tests/test_txn_fraud_layer.py`, `tests/test_policy.py` — 31 new tests) but nothing calls them yet. Phase 8's `auth_flow.py`/`payment_flow.py` are the first real callers: get `ScoreResult` from `stack.score()` → `decision_engine.decide(result.risk_band, action_type, policy=policy, cold_start=..., degraded=result.degraded_mode)` → if `action=="verify"`, `adaptive_auth.select_factor(decision.assurance, device_caps, policy["stepup"])` → on the payment path, also `txn_fraud_layer.resolve_controls(result.risk_band, result.amplifiers, txn_ctx, policy)`.
 - **`RISK_ACTION_MATRIX` in `decision_engine.py` is a module constant, not in the policy dict:** it transcribes PRD §10.2 verbatim (the *shape* of band×stakes→action). Only the per-action-type stakes *classification* (`policy["action_sensitivity"]`) is policy-driven/admin-tunable — e.g. a bank could decide `"raise_limit"` should be `medium`-stakes instead of `high`. If a future phase needs the matrix cells themselves to be admin-editable too, move `RISK_ACTION_MATRIX` into the policy dict at that point; Phase 7 kept it a constant to match `Implementation.md`'s own pseudocode shape and avoid speculative configurability.
+- **Phase 8 wired everything end-to-end** — `routers/{auth,payment,risk,admin}.py` mounted under `/api/v1`, `app.state.registry = Registry()` instantiated once in `main.py`'s lifespan (`deps.get_registry` reads it back out), `deps.get_current_user` is denylist-only (decodes the JWT, checks `jwt:denylist:{jwt_id}`, no extra Postgres read beyond loading the `User`/`Session` rows the caller actually needs). Manually verified against the live stack (curl/httpx round-trips for register→consent→login→payment) in addition to the 98-test automated suite.
+- **`canonical(metrics)` for the HMAC signature is defined in `integrity.py`, not in any doc** — `Implementation.md`/Architecture specify `key=sha256(jwt_secret+nonce)` and `msg=nonce‖canonical(metrics)‖fingerprint‖ts` but never pin down what "metrics" actually serializes (the behavior-sdk that would need to mirror this, Phase 10, doesn't exist yet). `integrity.canonical_metrics()` is the one definition: a sorted-key, no-whitespace JSON dump of `{channel, source, action, keystroke, mouse, touch, derived_features, context}` — everything in `BehaviorPayload` except the signature envelope (`nonce`/`seq`/`ts`/`integrity_sig`) and `device` (only its `fingerprint` is bound in, separately). **Whoever builds Phase 10's SDK must mirror this exactly.**
+- **Two new Redis key families not in Architecture §4.1's catalog** (same pattern as Phase 7's `policy:active`): `seq:{binding}` (int, persists the monotonic-seq floor for anti-replay — `binding` = device fingerprint pre-login, `session_id` once one exists) and `user:{user_id}:new_payees_recent` (SET, TTL 1h, tracks distinct new payees for the `RAPID_FANOUT` amplifier's `new_payee_count_recent` input). Both originate in `integrity.py`/`payment_flow.py` respectively.
+- **`session:risk:{session_id}` originates in Phase 8, not Phase 9** — `auth_flow.py`/`payment_flow.py` write it after every scoring event so `GET /api/v1/risk/session/{id}` has real data immediately; Phase 9's continuous re-scoring just keeps writing the same key.
+- **Found and fixed during Phase 8 integration testing:** `decision_engine`'s `RISK_ACTION_MATRIX` cells carry `cooling_off`/`reconfirm` flags (e.g. low risk + high-stakes new payee → "verify + cooling-off", PRD §10.2) but `txn_fraud_layer.resolve_controls()` only triggers from `risk_band`/fired amplifiers — it has no visibility into those matrix-level flags (its own Phase 7 signature/tests didn't change, by design). `payment_flow.py` merges both signals after calling `resolve_controls()`: if `decision.cooling_off`/`decision.reconfirm` is set and `txn_controls` didn't already populate that field, it fills in `cooling_until`/`reconfirm` from `policy["cooling_off"]`. Without this merge, a low-risk-but-high-stakes new-payee transfer would say `action: "verify"` but return empty `txn_controls` — caught by `tests/test_payment_flow.py::test_new_payee_high_value_populates_txn_controls_when_flagged`.
+- **`Session.ip_address` is a Postgres `INET` column** — `routers/auth.py`/`routers/payment.py`'s `_client_ip()` validates `request.client.host` via `ipaddress.ip_address()` and falls back to `"0.0.0.0"` for anything unparseable (e.g. `TestClient`'s default `"testclient"` host, or a misconfigured reverse-proxy header) — found via `test_auth_flow.py` failing with a Postgres `InvalidTextRepresentation` error before this fix.
+- **Real ASN/GeoIP lookup is out of scope** — `_client_asn()` in both routers reads an optional `X-Demo-Asn` header (no GeoIP/ASN library is wired into this project); `asn` is `None` in any real deployment until that's added. The distributed-bruteforce-detection counter (`bruteforce:asn:{asn}`) is only exercised when that header is present.
+- **`admin.py` ships only `/events`, `/users/{id}`, `/policy` GET/PUT** — `/cases` needs Phase 9's `case_mgmt.py`, `/models/.../promote`+`/retrain` need Phase 12's governance service, neither exists yet. `require_admin` is a demo stand-in (`X-Admin-Token` header checked against `settings.jwt_secret` — no admin-role column/user model exists). `behavior.py`/`ws.py` routers are Phase 9, not mounted.
+- **Real model quality (Phase 5/6 gap) means `test_auth_flow.py`/`test_payment_flow.py` assert structure, not specific outcomes** — confirmed deliberately (not a synthetic-model override) when planning Phase 8. Tests check `action in {allow,verify,block}` and that the *consequences* of whichever action came back are correct (JWT+Session on allow, AuthChallenge+step-up on verify, no token on block) rather than asserting a specific genuine/impostor verdict. The step-up-completion test sidesteps model nondeterminism entirely by seeding the `AuthChallenge`/`stepup:{id}` state directly rather than depending on a real login returning `verify`.
 
 ---
 
 ## 9. Open items for upcoming phases
 
-- **Phase 6+7 done, not yet wired into a router** (see gotchas above) — Phase 8's gateway flows (`auth_flow.py`/`payment_flow.py`) instantiate `Registry`, call `stack.score()`, then `decision_engine.decide()` → `adaptive_auth.select_factor()` → (payment path) `txn_fraud_layer.resolve_controls()`, and assemble the result into `DecisionResponse`.
-- **Phase 8's `/admin/policy` endpoint must write to the `policy:active` Redis key**, not a new Postgres table (see Phase 7 gotcha above) — `PolicyUpdate` (already defined in `schemas/admin.py`) is the request body; persist it as JSON via `redis_client.set("policy:active", PolicyUpdate(...).model_dump_json())` so `policy.active_policy()` picks it up immediately on the next request, no restart.
+- **Phase 9 is next**: continuous re-scoring (`POST /behavior/ingest`, using the
+  `session:risk:{id}` key Phase 8 already originates), the SOC WebSocket broadcaster
+  (`ws.py`), case management (`/admin/cases`, finally backing that admin subset), and
+  the RTBF/quarantine background jobs (`jobs/rtbf.py`, `jobs/quarantine.py` — the
+  `BehaviorSample.accepted`/`quarantine_until` bookkeeping Phase 8 already writes on
+  every login is what those jobs will scan).
+- **Phase 10's behavior-sdk must mirror `integrity.canonical_metrics()` exactly** (see
+  gotcha above) — there's no other source of truth for the HMAC message format since
+  Phase 8 is the first place it's ever been implemented.
 - **Phase 6 inherits the Phase 5 model-quality gap:** improve label quality before trusting `xgboost_txn`'s output in a real demo; per-user `behavior:{id}:baseline` should do the real biometric discrimination once it tracks the full 9-dim vector (see gotcha above) — the global IF prior is only the cold-start fallback, not expected to hit G6 alone.
-- **`phase-5-feature-reader` and `phase-6-scoring-service` are not merged into `main` yet** — `main` currently only has Phase 0–4. Whoever merges should land Phase 5 before Phase 6 (Phase 6 branches from Phase 5, not from `main`). Phase 7 was built directly on `phase-6-scoring-service` (same branch, no new branch cut) since it's a small, tightly-coupled follow-on to Phase 6's scoring service.
+- **`phase-5-feature-reader` and `phase-6-scoring-service` are not merged into `main` yet** — `main` currently only has Phase 0–4. Whoever merges should land Phase 5 before Phase 6 (Phase 6 branches from Phase 5, not from `main`). Phases 7 and 8 were both built directly on `phase-6-scoring-service` (same branch, no new branch cut) since they're tightly-coupled follow-ons to Phase 6's scoring service.
 - **Auto-submit Flink job** (gateway startup or a flink-init service) — currently manual.
+- **No real GeoIP/ASN lookup, captcha provider, or WebAuthn/biometric verification** — all demo stand-ins (see Phase 8 gotchas above). Real RBAC for `/admin/*` also still pending (currently a shared `X-Admin-Token` header check).

@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     jwt_secret: str = "change_me_dev_only_super_secret"
     jwt_alg: str = "HS256"
     jwt_ttl_minutes: int = 30
+    nonce_ttl_s: int = 120
+    integrity_skew_s: int = 30
+    demo_otp: str = "123456"
 
     # ML
     model_dir: str = "/models"

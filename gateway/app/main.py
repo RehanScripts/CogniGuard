@@ -10,6 +10,8 @@ from . import kafka_client, s3_client
 from .config import settings
 from .db import engine
 from .redis_client import ping as redis_ping
+from .routers import admin, auth, payment, risk
+from .scoring.registry import Registry
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger("cogniguard.gateway")
@@ -17,6 +19,10 @@ logger = logging.getLogger("cogniguard.gateway")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Resolved once and shared across requests (CLAUDE.md invariant 18) -- routers read
+    # it via app.state through deps.get_registry, never construct their own.
+    app.state.registry = Registry()
+
     # Ensure Kafka topics exist (idempotent, best-effort — never block startup).
     try:
         from scripts.create_topics import create_topics
@@ -37,6 +43,15 @@ def _db_ping() -> bool:
         return False
 
 
+def _model_registry_status(registry: Registry) -> str:
+    try:
+        registry.get("isolation_forest")
+        registry.get("xgboost_txn")
+        return "ok"
+    except Exception:
+        return "degraded"
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="CogniGuard Gateway", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -54,20 +69,17 @@ def create_app() -> FastAPI:
             "redis": "ok" if redis_ping() else "down",
             "kafka": "ok" if kafka_client.ping() else "down",
             "s3": "ok" if s3_ping_safe() else "down",
-            "model_registry": "empty",  # populated in Phase 6
+            "model_registry": _model_registry_status(app.state.registry),
         }
         healthy = all(v == "ok" for k, v in checks.items() if k != "model_registry")
         body = {"status": "ok" if healthy else "degraded", "env": settings.app_env, **checks}
         return JSONResponse(body, status_code=200 if healthy else 503)
 
-    # Routers are mounted in later phases:
-    # from .routers import auth, payment, behavior, risk, admin, ws
-    # app.include_router(auth.router,     prefix="/api/v1/auth",     tags=["auth"])
-    # app.include_router(payment.router,  prefix="/api/v1/payment",  tags=["payment"])
-    # app.include_router(behavior.router, prefix="/api/v1/behavior", tags=["behavior"])
-    # app.include_router(risk.router,     prefix="/api/v1/risk",     tags=["risk"])
-    # app.include_router(admin.router,    prefix="/api/v1/admin",    tags=["admin"])
-    # app.include_router(ws.router,       tags=["ws"])
+    app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+    app.include_router(payment.router, prefix="/api/v1/payment", tags=["payment"])
+    app.include_router(risk.router, prefix="/api/v1/risk", tags=["risk"])
+    app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+    # behavior.py + ws.py: Phase 9 (continuous re-scoring + SOC WS broadcaster).
     return app
 
 
