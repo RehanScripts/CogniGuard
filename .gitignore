@@ -1,0 +1,43 @@
+# --- Secrets / env ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Node / frontend ---
+node_modules/
+dist/
+.vite/
+*.local
+
+# --- ML model artifacts (tracked in S3, not git) ---
+models/*.joblib
+models/*.xgb
+models/*.json
+!models/.gitkeep
+
+# --- Local infra / data volumes ---
+pgdata/
+minio-data/
+flink-checkpoints/
+
+# --- Local Claude Code settings ---
+.claude/settings.local.json
+
+# --- OS / editor ---
+.DS_Store
+*.swp
+.idea/
+.vscode/
