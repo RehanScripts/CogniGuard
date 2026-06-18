@@ -17,6 +17,19 @@ Keep this file up to date: when you finish a phase, tick it here in the same PR.
 > `behavior_samples` + Redis baseline while retaining the audit trail. Verified by hand
 > against the live stack (curl/httpx/WS round-trips, plus running both jobs from the
 > CLI) in addition to the automated suite (110 tests passing).
+>
+> **Phase 10 (behavior-sdk) is also now done**, same branch. The standalone TS package
+> at `behavior-sdk/` mirrors the gateway's signing scheme exactly: `KeystrokeCapture`/
+> `MouseCapture`/`TouchCapture` (events.ts) buffer raw timing/motion data (password
+> fields always masked to `"x"`); `fingerprint.ts` builds the device fingerprint;
+> `edge.ts` does mobile edge feature extraction with the same math as
+> `feature_reader.py`'s web-path reduction; `payload.ts` fetches a nonce, computes
+> `canonical(metrics)` byte-for-byte matching Python's `json.dumps(sort_keys=True,
+> separators=(",",":"))` (including the float-coercion quirk — see gotcha below), and
+> signs with HMAC-SHA256 via Web Crypto; `index.ts` exposes the public
+> `CogniGuard.init/attach/collect/startContinuous` API. `npm run build && npm test`
+> green (23 tests) — including a cross-check of `signPayload()`'s `integrity_sig`
+> against an independently computed `node:crypto` HMAC using the same formula.
 
 ---
 
@@ -118,7 +131,7 @@ Status: ✅ done · 🚧 in progress · ⬜ todo. Update the row when you pick u
 | 7 | Decision engine + adaptive auth + risk×action + txn-fraud layer | ✅ | — | phase-6-scoring-service | band→action; cold-start→verify; controls fire |
 | 8 | Gateway flows: integrity, login, step-up, payment, JWT, hardening, consent, audit | ✅ | — | phase-6-scoring-service | `/auth/login` + `/payment/score` return `DecisionResponse` |
 | 9 | Continuous re-scoring + SOC WS broadcaster + case mgmt + RTBF/quarantine jobs | ✅ | — | phase-6-scoring-service | `/behavior/ingest` + `/ws/soc-feed` live |
-| 10 | behavior-sdk (TypeScript) | ⬜ | | | capture + signed payload; SDK tests |
+| 10 | behavior-sdk (TypeScript) | ✅ | — | phase-6-scoring-service | capture + signed payload; SDK tests |
 | 11 | web-app + bank-dashboard | ⬜ | | | full demo via `--profile ui` |
 | 12 | 
 Model governance: registry, champion/challenger, drift, feedback loop | ⬜ | | | shadow scoring + promotion + drift |
@@ -193,11 +206,38 @@ models/         local mirror of S3 model artifacts (gitignored)
 - **The SOC broadcaster (`services/broadcaster.py`) uses an ephemeral, per-instance Kafka consumer group (`soc-broadcaster-{uuid}`) reading from `"latest"`**, not the shared/persistent group `kafka_client.get_consumer()` gives every other consumer in this codebase. It's a live tail-the-topic fan-out, not a stateful processor: a persistent shared group caused real rebalance-contention flakiness in `test_continuous.py`'s WS test every time `uvicorn --reload`/a fresh `TestClient(app)` restarted the lifespan (each restart rejoining the same group while the previous member was still leaving). `"latest"` also means a freshly (re)started broadcaster won't replay backlog — by design for a live feed, but it does mean a WS client that connects and expects to see an event needs the broadcaster's consumer to have completed partition assignment first; `test_continuous.py` adds a short grace sleep before producing traffic for exactly this reason.
 - **`jobs/quarantine.py`/`jobs/rtbf.py` are one-off CLI scripts** (`python -m app.jobs.quarantine` / `python -m app.jobs.rtbf`), not wired to any scheduler — there's no APScheduler/cron in this repo yet. Run them manually or via an external K8s CronJob in a real deployment.
 - **`jobs/rtbf.py` only purges `behavior_samples` + the Redis `behavior:{id}:baseline` key** (the "per-user model artifact") for `consent_status=WITHDRAWN` users, plus any `BehaviorSample` past `retention_expires_at` regardless of consent — `risk_scores`/`decisions`/`audit_logs` are left untouched since they carry score/band/decision, not raw biometric data, so there's nothing in them to strip per Implementation.md's "retain stripped to score/band/decision" wording.
-- **Phase 10's behavior-sdk must mirror `integrity.canonical_metrics()` exactly** (see
+- **Phase 10's behavior-sdk mirrors `integrity.canonical_metrics()` exactly** (see
   gotcha above) — there's no other source of truth for the HMAC message format since
-  Phase 8 is the first place it's ever been implemented.
+  Phase 8 is the first place it's ever been implemented. `behavior-sdk/src/payload.ts`'s
+  `canonical()` recursively sorts object keys and serializes with no whitespace to match
+  Python's `json.dumps(sort_keys=True, separators=(",",":"))`.
+- **Known security gap, carried forward on purpose:** the HMAC signing key derives from
+  `key=sha256(jwt_secret+nonce)` — a *server* secret — per `Implementation.md` line 499's
+  literal formula, so `behavior-sdk`'s `CogniGuard.init({signingSecret})` has to be
+  configured with that same secret to sign client-side, which means it ends up in
+  client-served JS once `web-app` (Phase 11) wires this in. This is a real weakness for
+  a production deployment, accepted here as a documented prototype simplification (not
+  redesigned in Phase 10, since `CLAUDE.md` says not to invent alternatives to a
+  doc-pinned contract). **Real fix for a later phase:** have the gateway mint a
+  short-lived, per-nonce signing key returned alongside `GET /auth/nonce` instead of
+  reusing `jwt_secret`, so the actual JWT secret never has to leave the server.
+- **Cross-language float-formatting quirk in `canonical(metrics)`:** Pydantic coerces
+  any `float`-typed `BehaviorPayload` field (keystroke `down`/`up`, the three `context`
+  timing fields, every `derived_features` value) to a Python `float` on parse, so when
+  `integrity.canonical_metrics()` re-serializes the model, a whole-number value like
+  `12` always renders as `"12.0"` — never `"12"` — regardless of what the wire JSON
+  looked like. JS's `JSON.stringify(12)` renders `"12"`, which would silently break the
+  signature match. `behavior-sdk/src/payload.ts` works around this with a `pyFloat()`
+  leaf marker (`canonical()` renders `pyFloat(12)` as `"12.0"`) applied only to those
+  specific Pydantic-`float`-typed leaf positions; `mouse`/`touch` fields are untyped
+  `dict` passthroughs on the gateway side (no coercion), so their numbers are left as
+  plain JS numbers, matching Python's pass-through behavior. Verified in
+  `payload.test.ts` by independently recomputing the HMAC via `node:crypto` (a different
+  crypto API than the implementation's Web Crypto path) and asserting a byte-for-byte
+  match.
+- **`canonical(metrics)` agreement never depends on dict/object insertion order, on either side:** `canonical()` (JS) sorts keys via `Object.keys(obj).sort()` at *every* level it recurses into — top-level metrics, nested blocks, objects inside arrays — exactly as Python's `sort_keys=True` re-sorts every dict its encoder visits, at any depth (stdlib guarantee, not just the top level). Neither implementation ever trusts caller-supplied insertion order. `payload.test.ts` has two regression tests for this: `canonical()` given the same logical tree built with reversed key order at every level produces an identical string, and `signPayload()` given two logically-identical `UnsignedPayload`s whose nested objects (`device`, `context`, `keystroke.events[]` entries) declare keys in reverse order — with the system clock frozen via `vi.useFakeTimers()` so `ts` matches and key order is the only variable — produces the same `integrity_sig`. (Array *element* order, e.g. the sequence of keystroke events, is intentionally **not** order-independent — it's meaningful temporal data, not a set — so that test holds the events array order fixed and only varies each event object's own key order.)
 - **Phase 6 inherits the Phase 5 model-quality gap:** improve label quality before trusting `xgboost_txn`'s output in a real demo; per-user `behavior:{id}:baseline` should do the real biometric discrimination once it tracks the full 9-dim vector (see gotcha above) — the global IF prior is only the cold-start fallback, not expected to hit G6 alone.
 - **`phase-5-feature-reader` and `phase-6-scoring-service` are not merged into `main` yet** — `main` currently only has Phase 0–4. Whoever merges should land Phase 5 before Phase 6 (Phase 6 branches from Phase 5, not from `main`). Phases 7, 8, and 9 were all built directly on `phase-6-scoring-service` (same branch, no new branch cut) since they're tightly-coupled follow-ons to Phase 6's scoring service.
-- **Phase 9 is done; Phase 10 (behavior-sdk) is next** per the dependency graph (§5) — it only needs Phase 2's frozen payload shape, so it could have started in parallel earlier, but nobody picked it up yet.
+- **Phase 10 is done; Phase 11 (web-app + bank-dashboard) is next** per the dependency graph (§5) — it needs Phases 8–10 (gateway flows, this SDK).
 - **Auto-submit Flink job** (gateway startup or a flink-init service) — currently manual.
 - **No real GeoIP/ASN lookup, captcha provider, or WebAuthn/biometric verification** — all demo stand-ins (see Phase 8 gotchas above). Real RBAC for `/admin/*` also still pending (currently a shared `X-Admin-Token` header check).
