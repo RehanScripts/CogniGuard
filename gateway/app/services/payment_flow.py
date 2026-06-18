@@ -34,7 +34,7 @@ from ..scoring import stack
 from ..scoring.amplifiers import NEW_PAYEE_AMOUNT_RATIO, TxnContext
 from ..scoring.registry import Registry
 from ..utils import fingerprint
-from . import audit, event_producer, feature_reader, integrity
+from . import audit, case_mgmt, event_producer, feature_reader, integrity
 from .adaptive_auth import select_factor
 from .decision_engine import decide
 from .policy import active_policy
@@ -314,5 +314,15 @@ def score_payment(
         required_factors=response.required_factors,
         reason_codes=[rc.model_dump() for rc in result.reason_codes],
     )
+    if decision.action == "block" or result.risk_band == "very_high":
+        background_tasks.add_task(
+            case_mgmt.maybe_open_case,
+            db,
+            user_id=user.user_id,
+            transaction_id=transaction_id,
+            risk_band=result.risk_band,
+            action=decision.action,
+            reason_codes=[rc.model_dump() for rc in result.reason_codes],
+        )
 
     return 200, response

@@ -10,8 +10,9 @@ from . import kafka_client, s3_client
 from .config import settings
 from .db import engine
 from .redis_client import ping as redis_ping
-from .routers import admin, auth, payment, risk
+from .routers import admin, auth, behavior, payment, risk, ws
 from .scoring.registry import Registry
+from .services import broadcaster
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger("cogniguard.gateway")
@@ -31,7 +32,13 @@ async def lifespan(app: FastAPI):
         logger.info("kafka topics ready (created: %s)", created or "all present")
     except Exception as exc:  # broker not up yet / transient
         logger.warning("topic creation skipped: %s", exc)
+
+    # SOC broadcaster: Kafka risk_scores/decisions -> Redis pub/sub "soc-feed", consumed
+    # by routers/ws.py. Background thread (CLAUDE.md gives no async Kafka client here).
+    app.state.broadcaster_thread, app.state.broadcaster_stop = broadcaster.start()
     yield
+    app.state.broadcaster_stop.set()
+    app.state.broadcaster_thread.join(timeout=5)
 
 
 def _db_ping() -> bool:
@@ -79,7 +86,8 @@ def create_app() -> FastAPI:
     app.include_router(payment.router, prefix="/api/v1/payment", tags=["payment"])
     app.include_router(risk.router, prefix="/api/v1/risk", tags=["risk"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
-    # behavior.py + ws.py: Phase 9 (continuous re-scoring + SOC WS broadcaster).
+    app.include_router(behavior.router, prefix="/api/v1/behavior", tags=["behavior"])
+    app.include_router(ws.router, prefix="/ws", tags=["ws"])
     return app
 
 

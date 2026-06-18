@@ -39,8 +39,20 @@ class UserDetailOut(BaseModel):
 
 
 class CaseUpdate(BaseModel):
-    status: Literal[
-        "open", "investigating", "confirmed_fraud", "false_positive", "closed"
-    ] | None = None
+    status: (
+        Literal["open", "investigating", "confirmed_fraud", "false_positive", "closed"] | None
+    ) = None
     assigned_to: str | None = None
     note: str | None = None
+
+
+class CaseOut(BaseModel):
+    case_id: str
+    user_id: str | None = None
+    transaction_id: str | None = None
+    alert_type: str | None = None
+    severity: str | None = None
+    status: str
+    assigned_to: str | None = None
+    created_at: str | None = None
+    resolved_at: str | None = None

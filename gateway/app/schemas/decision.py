@@ -50,3 +50,17 @@ class DecisionResponse(BaseModel):
     integrity: Literal["OK", "INTEGRITY_REJECT"] = "OK"
     degraded_mode: bool = False
     model_version: str = ""
+
+
+class BehaviorIngestResponse(BaseModel):
+    """POST /behavior/ingest (Architecture §6.4, Implementation.md Phase 9) -- the
+    lightweight continuous-re-scoring response (`{action, reauth}` is the contract the
+    client actually needs to act on; the rest is for the dashboard/debugging)."""
+
+    action: Literal["allow", "verify"]
+    reauth: bool = False
+    risk_score: float
+    risk_band: RiskBand
+    reason_codes: list[ReasonCode] = Field(default_factory=list)
+    degraded_mode: bool = False
+    model_version: str = ""

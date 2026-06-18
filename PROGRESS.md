@@ -3,17 +3,20 @@
 Living tracker + onboarding for the team. **Read this first**, then the four source docs.
 Keep this file up to date: when you finish a phase, tick it here in the same PR.
 
-> **Last verified:** Phase 8 complete on `phase-6-scoring-service` (branched from
+> **Last verified:** Phase 9 complete on `phase-6-scoring-service` (branched from
 > `phase-5-feature-reader` — none of the three are merged to `main` yet; `main` still
-> only has Phase 0–4). The hot paths are wired end-to-end for the first time: a human
-> can `curl /api/v1/auth/register` → `/consent` → `/login` (real Argon2id + nonce/HMAC/
-> seq integrity verify + Track A IP/device hardening + stacked IF→XGBoost scoring +
-> Phase 7's decision engine + JWT issuance) and `/api/v1/payment/score` (Bearer-
-> authenticated, beneficiary find-or-create, amplifiers, txn-fraud-layer controls) and
-> get a real `DecisionResponse`/`PaymentScoreResponse` back. `GET /api/v1/risk/session/{id}`
-> and the `/api/v1/admin/{events,users/{id},policy}` subset are live too. Verified by
-> hand against the live stack (manual curl/httpx round-trips) in addition to the
-> automated suite (98 tests passing).
+> only has Phase 0–4). On top of Phase 8's hot paths, a human can now also: POST
+> `/api/v1/behavior/ingest` (Bearer-authenticated continuous re-scoring — a `very_high`
+> band terminates the session, denylists its JWT, and opens a case; otherwise it
+> updates `session:risk:{id}` and returns `{action:"allow"}`); connect to `WS
+> /ws/soc-feed` and see `risk_scores`/`decisions` Kafka events live (broadcaster bridges
+> them through Redis pub/sub); and drive `/api/v1/admin/cases` GET/PATCH (analyst
+> assign/note/resolve, with `confirmed_fraud`/`false_positive` writing a labeled row to
+> S3 for Phase 12). `python -m app.jobs.quarantine` promotes/discards step-up telemetry
+> past its clean window; `python -m app.jobs.rtbf` hard-deletes a withdrawn user's
+> `behavior_samples` + Redis baseline while retaining the audit trail. Verified by hand
+> against the live stack (curl/httpx/WS round-trips, plus running both jobs from the
+> CLI) in addition to the automated suite (110 tests passing).
 
 ---
 
@@ -114,10 +117,11 @@ Status: ✅ done · 🚧 in progress · ⬜ todo. Update the row when you pick u
 | 6 | Scoring service (IF → XGBoost stacked) + explain + registry | ✅ | — | phase-6-scoring-service | stacked score + reason codes; degraded fallback; amplifier math |
 | 7 | Decision engine + adaptive auth + risk×action + txn-fraud layer | ✅ | — | phase-6-scoring-service | band→action; cold-start→verify; controls fire |
 | 8 | Gateway flows: integrity, login, step-up, payment, JWT, hardening, consent, audit | ✅ | — | phase-6-scoring-service | `/auth/login` + `/payment/score` return `DecisionResponse` |
-| 9 | Continuous re-scoring + SOC WS broadcaster + case mgmt + RTBF/quarantine jobs | ⬜ | | | `/behavior/ingest` + `/ws/soc-feed` live |
+| 9 | Continuous re-scoring + SOC WS broadcaster + case mgmt + RTBF/quarantine jobs | ✅ | — | phase-6-scoring-service | `/behavior/ingest` + `/ws/soc-feed` live |
 | 10 | behavior-sdk (TypeScript) | ⬜ | | | capture + signed payload; SDK tests |
 | 11 | web-app + bank-dashboard | ⬜ | | | full demo via `--profile ui` |
-| 12 | Model governance: registry, champion/challenger, drift, feedback loop | ⬜ | | | shadow scoring + promotion + drift |
+| 12 | 
+Model governance: registry, champion/challenger, drift, feedback loop | ⬜ | | | shadow scoring + promotion + drift |
 
 **Dependency graph (what can run in parallel):**
 ```
@@ -183,23 +187,17 @@ models/         local mirror of S3 model artifacts (gitignored)
 - **Found and fixed during Phase 8 integration testing:** `decision_engine`'s `RISK_ACTION_MATRIX` cells carry `cooling_off`/`reconfirm` flags (e.g. low risk + high-stakes new payee → "verify + cooling-off", PRD §10.2) but `txn_fraud_layer.resolve_controls()` only triggers from `risk_band`/fired amplifiers — it has no visibility into those matrix-level flags (its own Phase 7 signature/tests didn't change, by design). `payment_flow.py` merges both signals after calling `resolve_controls()`: if `decision.cooling_off`/`decision.reconfirm` is set and `txn_controls` didn't already populate that field, it fills in `cooling_until`/`reconfirm` from `policy["cooling_off"]`. Without this merge, a low-risk-but-high-stakes new-payee transfer would say `action: "verify"` but return empty `txn_controls` — caught by `tests/test_payment_flow.py::test_new_payee_high_value_populates_txn_controls_when_flagged`.
 - **`Session.ip_address` is a Postgres `INET` column** — `routers/auth.py`/`routers/payment.py`'s `_client_ip()` validates `request.client.host` via `ipaddress.ip_address()` and falls back to `"0.0.0.0"` for anything unparseable (e.g. `TestClient`'s default `"testclient"` host, or a misconfigured reverse-proxy header) — found via `test_auth_flow.py` failing with a Postgres `InvalidTextRepresentation` error before this fix.
 - **Real ASN/GeoIP lookup is out of scope** — `_client_asn()` in both routers reads an optional `X-Demo-Asn` header (no GeoIP/ASN library is wired into this project); `asn` is `None` in any real deployment until that's added. The distributed-bruteforce-detection counter (`bruteforce:asn:{asn}`) is only exercised when that header is present.
-- **`admin.py` ships only `/events`, `/users/{id}`, `/policy` GET/PUT** — `/cases` needs Phase 9's `case_mgmt.py`, `/models/.../promote`+`/retrain` need Phase 12's governance service, neither exists yet. `require_admin` is a demo stand-in (`X-Admin-Token` header checked against `settings.jwt_secret` — no admin-role column/user model exists). `behavior.py`/`ws.py` routers are Phase 9, not mounted.
 - **Real model quality (Phase 5/6 gap) means `test_auth_flow.py`/`test_payment_flow.py` assert structure, not specific outcomes** — confirmed deliberately (not a synthetic-model override) when planning Phase 8. Tests check `action in {allow,verify,block}` and that the *consequences* of whichever action came back are correct (JWT+Session on allow, AuthChallenge+step-up on verify, no token on block) rather than asserting a specific genuine/impostor verdict. The step-up-completion test sidesteps model nondeterminism entirely by seeding the `AuthChallenge`/`stepup:{id}` state directly rather than depending on a real login returning `verify`.
-
----
-
-## 9. Open items for upcoming phases
-
-- **Phase 9 is next**: continuous re-scoring (`POST /behavior/ingest`, using the
-  `session:risk:{id}` key Phase 8 already originates), the SOC WebSocket broadcaster
-  (`ws.py`), case management (`/admin/cases`, finally backing that admin subset), and
-  the RTBF/quarantine background jobs (`jobs/rtbf.py`, `jobs/quarantine.py` — the
-  `BehaviorSample.accepted`/`quarantine_until` bookkeeping Phase 8 already writes on
-  every login is what those jobs will scan).
+- **Phase 9's `/behavior/ingest` does not call `decision_engine.decide()`** — Architecture §6.4's sequence is a flat two-branch safety net on `risk_band` (`very_high` → terminate the session + denylist its JWT + open a case; else → update `session:risk:{id}` and `{action:"allow"}`), not a stakes-gated action attempt like login/payment. `entity_type="transaction"` is used for its `risk_scores`/`decisions` rows (CLAUDE.md's canonical entity types are only `login`/`transaction`; Implementation.md literally says "entity `transaction`/continuous" for this path). New logic lives in `services/behavior_flow.py` (not named in Implementation.md's Phase 9 file list, but added to match every prior phase's thin-router convention).
+- **Case-opening on `block`/`very_high` is one shared `case_mgmt.maybe_open_case(...)` background task**, called from all three scoring call sites (`auth_flow.login`, `payment_flow.score_payment`, `behavior_flow.ingest`) — `schemas/admin.py`'s `CaseUpdate` (and `UserDetailOut.quarantined_samples`, previously always 0) were defined back in Phase 2 and just got wired up here via `/admin/cases` GET/PATCH.
+- **The SOC broadcaster (`services/broadcaster.py`) uses an ephemeral, per-instance Kafka consumer group (`soc-broadcaster-{uuid}`) reading from `"latest"`**, not the shared/persistent group `kafka_client.get_consumer()` gives every other consumer in this codebase. It's a live tail-the-topic fan-out, not a stateful processor: a persistent shared group caused real rebalance-contention flakiness in `test_continuous.py`'s WS test every time `uvicorn --reload`/a fresh `TestClient(app)` restarted the lifespan (each restart rejoining the same group while the previous member was still leaving). `"latest"` also means a freshly (re)started broadcaster won't replay backlog — by design for a live feed, but it does mean a WS client that connects and expects to see an event needs the broadcaster's consumer to have completed partition assignment first; `test_continuous.py` adds a short grace sleep before producing traffic for exactly this reason.
+- **`jobs/quarantine.py`/`jobs/rtbf.py` are one-off CLI scripts** (`python -m app.jobs.quarantine` / `python -m app.jobs.rtbf`), not wired to any scheduler — there's no APScheduler/cron in this repo yet. Run them manually or via an external K8s CronJob in a real deployment.
+- **`jobs/rtbf.py` only purges `behavior_samples` + the Redis `behavior:{id}:baseline` key** (the "per-user model artifact") for `consent_status=WITHDRAWN` users, plus any `BehaviorSample` past `retention_expires_at` regardless of consent — `risk_scores`/`decisions`/`audit_logs` are left untouched since they carry score/band/decision, not raw biometric data, so there's nothing in them to strip per Implementation.md's "retain stripped to score/band/decision" wording.
 - **Phase 10's behavior-sdk must mirror `integrity.canonical_metrics()` exactly** (see
   gotcha above) — there's no other source of truth for the HMAC message format since
   Phase 8 is the first place it's ever been implemented.
 - **Phase 6 inherits the Phase 5 model-quality gap:** improve label quality before trusting `xgboost_txn`'s output in a real demo; per-user `behavior:{id}:baseline` should do the real biometric discrimination once it tracks the full 9-dim vector (see gotcha above) — the global IF prior is only the cold-start fallback, not expected to hit G6 alone.
-- **`phase-5-feature-reader` and `phase-6-scoring-service` are not merged into `main` yet** — `main` currently only has Phase 0–4. Whoever merges should land Phase 5 before Phase 6 (Phase 6 branches from Phase 5, not from `main`). Phases 7 and 8 were both built directly on `phase-6-scoring-service` (same branch, no new branch cut) since they're tightly-coupled follow-ons to Phase 6's scoring service.
+- **`phase-5-feature-reader` and `phase-6-scoring-service` are not merged into `main` yet** — `main` currently only has Phase 0–4. Whoever merges should land Phase 5 before Phase 6 (Phase 6 branches from Phase 5, not from `main`). Phases 7, 8, and 9 were all built directly on `phase-6-scoring-service` (same branch, no new branch cut) since they're tightly-coupled follow-ons to Phase 6's scoring service.
+- **Phase 9 is done; Phase 10 (behavior-sdk) is next** per the dependency graph (§5) — it only needs Phase 2's frozen payload shape, so it could have started in parallel earlier, but nobody picked it up yet.
 - **Auto-submit Flink job** (gateway startup or a flink-init service) — currently manual.
 - **No real GeoIP/ASN lookup, captcha provider, or WebAuthn/biometric verification** — all demo stand-ins (see Phase 8 gotchas above). Real RBAC for `/admin/*` also still pending (currently a shared `X-Admin-Token` header check).

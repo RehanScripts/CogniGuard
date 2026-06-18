@@ -43,7 +43,7 @@ from ..schemas.scoring import ReasonCode
 from ..scoring import stack
 from ..scoring.registry import Registry
 from ..utils import fingerprint, security
-from . import audit, consent, event_producer, feature_reader, hardening, integrity
+from . import audit, case_mgmt, consent, event_producer, feature_reader, hardening, integrity
 from .adaptive_auth import select_factor
 from .decision_engine import decide
 from .policy import active_policy
@@ -347,6 +347,16 @@ def login(
         required_factors=response.required_factors,
         reason_codes=[rc.model_dump() for rc in result.reason_codes],
     )
+    if decision.action == "block" or result.risk_band == "very_high":
+        background_tasks.add_task(
+            case_mgmt.maybe_open_case,
+            db,
+            user_id=user.user_id,
+            transaction_id=None,
+            risk_band=result.risk_band,
+            action=decision.action,
+            reason_codes=[rc.model_dump() for rc in result.reason_codes],
+        )
 
     return 200, response
 
