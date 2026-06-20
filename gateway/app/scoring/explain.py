@@ -84,3 +84,17 @@ def reason_codes(bundle: FeatureBundle, *, base_drivers: bool = True) -> list[Re
         out.extend(_top_drivers(bundle))
     out.extend(_pseudo_features(bundle))
     return out
+
+
+def ae_anomaly_reason(ae_recon_error: float | None, bscore: float) -> ReasonCode | None:
+    """Fires only when the LSTM Autoencoder actually drove `bscore` (Implementation.md
+    Phase 15 -- `ae_recon_error` is only set on that path, never on the IF/fallback
+    paths) and the calibrated score is above the neutral midpoint `calibration.py`
+    anchors `threshold` to (`> 0.5`, the same anchor used everywhere else)."""
+    if ae_recon_error is None or bscore <= 0.5:
+        return None
+    return ReasonCode(
+        code="BEHAVIOR_AE_ANOMALY",
+        detail="Behavioral sequence reconstruction error exceeds the calibrated threshold",
+        sigma=round(bscore, 2),
+    )

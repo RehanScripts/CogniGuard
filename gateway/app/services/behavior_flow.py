@@ -90,6 +90,7 @@ def ingest(
     ctx = FeatureReadContext(
         behavior=payload,
         device_id=str(session.device_id) if session.device_id else None,
+        session_id=str(session.session_id),
     )
     bundle = feature_reader.read_bundle(str(user.user_id), ctx, redis=redis)
     behavior_features = bundle.behavior

@@ -161,6 +161,60 @@ Keep this file up to date: when you finish a phase, tick it here in the same PR.
 > timestamps as a side effect of running the suite (the documented ~30s freshness-window
 > behavior, §8) — harmless, but worth `git checkout --` reverting before a commit if you
 > want a clean diff.
+>
+> **Phase 15 (AE-primary / IF-shadow / fallback routing) is now done, 2026-06-20**, same
+> branch (`phase-12-model-governance`, no new branch cut). This is "the actual behavior
+> change" Phase 13/14 set up: `gateway/app/scoring/stack.py`'s `_behavior_score()` now
+> routes `Behavior_Score` through the LSTM Autoencoder whenever a usable
+> sequence/recon-error is available and the bundle isn't AE-cold-start
+> (`_ae_primary()` — mobile uses the device-supplied `ae_recon_error` directly, web runs
+> `autoencoder.reconstruction_error()` against the Redis-assembled rolling window);
+> Isolation Forest is *always* computed (`_if_shadow()`, unchanged math, just lifted into
+> its own function) and logged as `if_shadow_score` regardless of which source wins, and
+> is also what AE-cold-start and AE-failure both fall back to. Everything downstream
+> (XGBoost, amplifiers, bands, reason codes) is untouched — it only ever sees the
+> resulting single `bscore`, never which model produced it. `gateway/app/scoring/
+> explain.py` gained the optional `ae_anomaly_reason()` (`BEHAVIOR_AE_ANOMALY`, fires
+> only when AE actually drove `bscore` and the calibrated score is above the neutral
+> 0.5 midpoint). `gateway/app/services/behavior_flow.py`'s `ingest()` now passes
+> `session_id=str(session.session_id)` into `FeatureReadContext` — the one caller wired
+> in this phase, per Implementation.md's literal Phase 15 file list, which lets the AE
+> ring buffer actually accumulate real rows across repeated continuous-ingest calls in a
+> session and eventually clear `MIN_SEQ=4`.
+>
+> **Three scope decisions, deliberately not in Implementation.md's literal pseudocode:**
+> (1) `auth_flow.login()` and `payment_flow.score_payment()` are **not** wired with
+> `session_id` this phase — login has no real `Session` row yet at scoring time (it's
+> created *after* the decision, only on `allow`/step-up-success), so there's nothing to
+> key a rolling window off; payment does have `session.session_id` available and could
+> be wired trivially, but isn't in this phase's file list, so it's left for a later
+> phase (the AE window will simply accumulate via `behavior_flow.ingest` calls within the
+> same session in the meantime). (2) The literal pseudocode checks only
+> `bundle.ae_cold_start`, but `FeatureBundle.ae_cold_start` defaults to `False` and every
+> hand-built bundle in `test_scoring.py` (Phase 6 baseline) never sets it or
+> `behavior_sequence`/`ae_recon_error` either — a literal reading would route those
+> bundles into the AE branch, where AE has nothing to run on, "fails," and flips
+> `degraded_mode` to `True` for every Phase 6 test. Fixed by also treating "no AE input
+> present at all" (`behavior_sequence is None and ae_recon_error is None`) as
+> cold-start — there's no signal yet, which isn't a *failure* — so `test_scoring.py`
+> needed zero changes. (3) `if_shadow_score` is populated whenever IF succeeds,
+> regardless of which source drives `bscore`, matching the goal statement's "always
+> computed, logged" framing literally rather than only when AE happens to be primary.
+> **Confirmed out of scope, not done:** persisting `behavior_score_source`/
+> `if_shadow_score`/`ae_recon_error` into the `RiskScore` Postgres model or the
+> `risk_scores` Kafka topic — neither is in this phase's file list; `scoring/shadow.py`'s
+> Phase 12 challenger-shadow mechanism still only A/B-tests `isolation_forest`/
+> `xgboost_txn`, not `lstm_autoencoder` itself, but needed no change since its
+> `_ShadowRegistry` already delegates unknown model names (including
+> `lstm_autoencoder`) straight to the real registry. Verified:
+> `pytest tests/test_stack_ae.py -q` (7 new tests — AE-primary happy path with an
+> if-vs-ae equal-bscore regression guard, AE failure → IF fallback degraded, AE
+> cold-start → IF fallback not degraded, both-fail → zero fallback degraded, the
+> legacy-no-AE-input-bundle cold-start treatment, the mobile device-recon-error path,
+> and the `BEHAVIOR_AE_ANOMALY` reason code) plus the full existing suite unmodified
+> (165 passed; the same pre-existing `test_event_producer.py` Kafka-roundtrip flake from
+> Phases 13–14, reconfirmed unrelated by re-running it in isolation against this phase's
+> change set too).
 
 ---
 
@@ -267,7 +321,7 @@ Status: ✅ done · 🚧 in progress · ⬜ todo. Update the row when you pick u
 | 12 | Model governance: registry, champion/challenger, drift, feedback loop | ✅ | — | phase-12-model-governance | shadow scoring + promotion + drift |
 | 13 | Calibration layer + LSTM Autoencoder scoring module (ONNX, pure) | ✅ | — | phase-12-model-governance | calibration math + AE scorer tests; registry loads ONNX |
 | 14 | Schema + sequence buffer + feature-reader extensions for AE | ✅ | — | phase-12-model-governance | `behavior:{session_id}:seq` buffer; new schema fields; no behavior change |
-| 15 | AE-primary / IF-shadow / fallback routing in the scoring stack | ⬜ | | | AE drives `Behavior_Score`; IF shadow logged; fallback ladder; regression-safe |
+| 15 | AE-primary / IF-shadow / fallback routing in the scoring stack | ✅ | — | phase-12-model-governance | AE drives `Behavior_Score`; IF shadow logged; fallback ladder; regression-safe |
 | 16 | LSTM Autoencoder training (ONNX + TFLite + calibration export) | ⬜ | | | trains + exports both artifacts; registry promotion; calib seeded |
 | 17 | Cross-platform integrity canonicalization (mobile AE fields) | ⬜ | | | Python/TS canonical bytes match a shared golden vector |
 | 18 | Native Android app + capture SDK (on-device TFLite) | ⬜ | | | Kotlin signing matches golden vector; on-device AE scores end-to-end |
@@ -379,7 +433,8 @@ models/         local mirror of S3 model artifacts (gitignored)
 - **`canonical(metrics)` agreement never depends on dict/object insertion order, on either side:** `canonical()` (JS) sorts keys via `Object.keys(obj).sort()` at *every* level it recurses into — top-level metrics, nested blocks, objects inside arrays — exactly as Python's `sort_keys=True` re-sorts every dict its encoder visits, at any depth (stdlib guarantee, not just the top level). Neither implementation ever trusts caller-supplied insertion order. `payload.test.ts` has two regression tests for this: `canonical()` given the same logical tree built with reversed key order at every level produces an identical string, and `signPayload()` given two logically-identical `UnsignedPayload`s whose nested objects (`device`, `context`, `keystroke.events[]` entries) declare keys in reverse order — with the system clock frozen via `vi.useFakeTimers()` so `ts` matches and key order is the only variable — produces the same `integrity_sig`. (Array *element* order, e.g. the sequence of keystroke events, is intentionally **not** order-independent — it's meaningful temporal data, not a set — so that test holds the events array order fixed and only varies each event object's own key order.)
 - **Phase 6 inherits the Phase 5 model-quality gap:** improve label quality before trusting `xgboost_txn`'s output in a real demo; per-user `behavior:{id}:baseline` should do the real biometric discrimination once it tracks the full 9-dim vector (see gotcha above) — the global IF prior is only the cold-start fallback, not expected to hit G6 alone.
 - **`phase-5-feature-reader` and `phase-6-scoring-service` are not merged into `main` yet** — `main` currently only has Phase 0–4. Whoever merges should land Phase 5 before Phase 6 (Phase 6 branches from Phase 5, not from `main`). Phases 7, 8, and 9 were all built directly on `phase-6-scoring-service` (same branch, no new branch cut) since they're tightly-coupled follow-ons to Phase 6's scoring service.
-- **Phase 14 is done; Phase 15 (AE-primary/IF-shadow/fallback routing in the scoring stack) is next** per the dependency graph (§5). Phases 11, 12, 13, and 14 are on separate/stacked branches (`phase-11-web-app-dashboard`, `phase-12-model-governance` branched from it, Phases 13–14 built directly on `phase-12-model-governance` with no new branch cut) — none is merged into `main` yet.
+- **Phase 15 is done; Phase 16 (LSTM Autoencoder training pipeline: ONNX + TFLite + calibration export) is next** per the dependency graph (§5). Phases 11, 12, 13, 14, and 15 are on separate/stacked branches (`phase-11-web-app-dashboard`, `phase-12-model-governance` branched from it, Phases 13–15 built directly on `phase-12-model-governance` with no new branch cut) — none is merged into `main` yet.
+- **Phase 15's AE-primary path is exercised today only via `behavior_flow.ingest()`'s continuous re-scoring** — `auth_flow.login()`/`payment_flow.score_payment()` were deliberately left unwired (no `session_id` passed into `FeatureReadContext`), so login and payment scoring still always resolve to the IF path until a later phase wires them too (see the Phase 15 summary-block entry above for why). Also, until Phase 16's `seed_calibration.py` seeds `calib:ae:population`, `calibration.load_calibration()` falls back to `default_calibration()` (`scale=1.0, threshold=0.5, temperature=1.0`) for every AE-primary call — usable, but not a real fit, so don't read early AE-primary `behavior_score` values as meaningful before Phase 16 lands.
 - **Auto-submit Flink job** (gateway startup or a flink-init service) — currently manual.
 - **No real GeoIP/ASN lookup, captcha provider, or WebAuthn/biometric verification** — all demo stand-ins (see Phase 8 gotchas above). Real RBAC for `/admin/*` also still pending (currently a shared `X-Admin-Token` header check).
 - **`gateway/scripts/seed_demo.py` / `generate_fraud_scenarios.py` didn't exist before Phase 11** — Implementation.md §5/§7 described them and `entrypoint.sh` already had the conditional hook, but the files themselves were never written (only `create_topics.py`/`load_datasets.py` existed). Without them, a fresh stack had no demo persona and a freshly-registered user could never reach the clean low-risk `allow` path (no 30-day baseline ⇒ permanent cold-start). Both are now built to full fidelity (genuine persona, policy, Redis baseline/known-sets, `scammer@upi` beneficiary 40 min old, the impostor persona as fixture-only data, and all 5 named fixtures) and reuse existing services exclusively (`policy.DEFAULT_POLICY`, `auth_flow.register/consent_action`, `fingerprint.get_or_create_*`, `integrity.issue_nonce/compute_signature`, `training.train_isolation_forest/train_xgboost`) — no new business logic was invented, only the Redis profile/baseline writer (`_seed_profile_and_baseline`) was genuinely new since nothing else wrote that shape.
