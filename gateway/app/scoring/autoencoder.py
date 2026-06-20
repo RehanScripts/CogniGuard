@@ -22,6 +22,10 @@ from .calibration import CalibrationParams
 SEQ_LEN = 16
 N_FEATURES = 9
 
+# Fewer real (unmasked) rows than this in a session's rolling window means there isn't
+# enough signal yet to trust the AE -- feature_reader.py's ae_cold_start gate (Phase 14).
+MIN_SEQ = 4
+
 
 def reconstruction_error(
     sequence: Sequence[Sequence[float]], *, model: Any, mask: Sequence[bool] | None = None

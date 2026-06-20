@@ -90,12 +90,16 @@ def _parse(raw: str) -> CalibrationParams:
     )
 
 
+def user_calibration_key(user_id: str) -> str:
+    return f"behavior:{user_id}:ae_calib"
+
+
 def load_calibration(user_id: str, *, redis: Redis) -> CalibrationParams:
     """Per-user `behavior:{user_id}:ae_calib` if present, else the population fallback
     `calib:ae:population`, else `default_calibration()`. Nothing writes either Redis key
     in this phase (that's Phase 16's `seed_calibration.py`) -- this is a read-only lookup
     exercised here against injected fakes, not live Redis state."""
-    raw = redis.get(f"behavior:{user_id}:ae_calib") or redis.get(POPULATION_CALIBRATION_KEY)
+    raw = redis.get(user_calibration_key(user_id)) or redis.get(POPULATION_CALIBRATION_KEY)
     if not raw:
         return default_calibration()
     return _parse(raw)

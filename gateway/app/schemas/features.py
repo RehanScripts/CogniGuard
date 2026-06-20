@@ -70,6 +70,13 @@ class FeatureBundle(BaseModel):
     context: ContextFeatures = Field(default_factory=ContextFeatures)
     cold_start: bool = False  # no per-user profile/baseline yet → bias to verify
 
+    # AE plumbing (Implementation.md Phase 14) -- populated by feature_reader.read_bundle;
+    # consumed by Phase 15's stack.py, untouched by anything yet.
+    behavior_sequence: list[list[float]] | None = None  # (SEQ_LEN, N_FEATURES), web only
+    behavior_sequence_mask: list[bool] | None = None  # True = real row, False = padding
+    ae_recon_error: float | None = None  # mobile-only, device-computed
+    ae_cold_start: bool = False  # too few real samples, or no calibration available yet
+
     def behavior_vector(self) -> list[float]:
         """9-dim vector in BEHAVIOR_COLUMNS order — matches the IsolationForest artifact."""
         return [getattr(self.behavior, name) for name in BEHAVIOR_COLUMNS]
@@ -105,3 +112,6 @@ class FeatureReadContext(BaseModel):
     beneficiary_id: str | None = None
     vpn: bool = False
     asn: int | None = None
+    # Per-session AE sequence-buffer key (Implementation.md Phase 14). None for every
+    # caller today -- wiring real session ids through is Phase 15's job.
+    session_id: str | None = None

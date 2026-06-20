@@ -11,11 +11,16 @@ units, can't share imports).
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
 import statistics
 
 from redis import Redis
 
+from training.train_isolation_forest import BEHAVIOR_COLUMNS
+
+from ..scoring import calibration
+from ..scoring.autoencoder import MIN_SEQ, N_FEATURES, SEQ_LEN
 from ..schemas.behavior import BehaviorPayload
 from ..schemas.features import (
     BehaviorFeatures,
@@ -29,6 +34,10 @@ from ..schemas.features import (
 from ..utils.geo import geohash, haversine
 
 EPS = 1e-9
+
+# AE rolling-window ring buffer (Implementation.md Phase 14) -- a capped Redis LIST per
+# session, refreshed on every push so a session that's still active never expires mid-way.
+SEQ_BUFFER_TTL_S = 24 * 3600
 
 # Feature-engineering heuristics (not decision thresholds/amplifiers — those live in
 # policy per CLAUDE.md §6 invariant 6). No per-user hour-of-day profile is kept in
@@ -65,6 +74,10 @@ def _k_amount_sum(uid: str) -> str:
 
 def _k_device_trust(device_id: str) -> str:
     return f"device:{device_id}:trust"
+
+
+def _k_seq(session_id: str) -> str:
+    return f"behavior:{session_id}:seq"
 
 
 def _parse_hour(ts: str) -> tuple[int, int]:
@@ -140,6 +153,60 @@ def _behavior_from_payload(behavior: BehaviorPayload) -> BehaviorFeatures:
     )
 
 
+def _has_calibration(user_id: str, *, redis: Redis) -> bool:
+    """Whether any AE calibration (per-user or population) exists yet -- read-only,
+    same key names `calibration.load_calibration` reads (Phase 13)."""
+    return bool(redis.exists(calibration.user_calibration_key(user_id))) or bool(
+        redis.exists(calibration.POPULATION_CALIBRATION_KEY)
+    )
+
+
+def _push_and_read_sequence(
+    session_id: str, vector: list[float], *, redis: Redis
+) -> tuple[list[list[float]], int]:
+    """Push the current 9-dim behavior vector onto this session's capped ring buffer and
+    read back the (left-padded) window. Returns (behavior_sequence, real_count); the
+    caller derives the mask from real_count since padding is always at the front."""
+    key = _k_seq(session_id)
+    redis.rpush(key, json.dumps(vector))
+    redis.ltrim(key, -SEQ_LEN, -1)
+    redis.expire(key, SEQ_BUFFER_TTL_S)
+
+    raw_rows = redis.lrange(key, 0, -1)
+    real_rows = [json.loads(row) for row in raw_rows]
+    real_count = len(real_rows)
+
+    pad_count = max(0, SEQ_LEN - real_count)
+    padded = [[0.0] * N_FEATURES for _ in range(pad_count)] + real_rows[-SEQ_LEN:]
+    return padded, real_count
+
+
+def _resolve_ae(
+    payload: FeatureReadContext, behavior_features: BehaviorFeatures, *, user_id: str, redis: Redis
+) -> tuple[list[list[float]] | None, list[bool] | None, float | None, bool]:
+    """(behavior_sequence, behavior_sequence_mask, ae_recon_error, ae_cold_start).
+    Web assembles the rolling window for Phase 15's server-side AE; mobile already
+    carries its own device-computed reconstruction error and skips assembly entirely
+    (Implementation.md Phase 14)."""
+    has_calibration = _has_calibration(user_id, redis=redis)
+
+    if payload.behavior.channel == "mobile":
+        ae_recon_error = payload.behavior.ae_recon_error
+        ae_cold_start = ae_recon_error is None or not has_calibration
+        return None, None, ae_recon_error, ae_cold_start
+
+    if not payload.session_id:
+        # No caller passes session_id yet (Phase 15's job) -- no buffer to build.
+        return None, None, None, True
+
+    vector = [getattr(behavior_features, name) for name in BEHAVIOR_COLUMNS]
+    behavior_sequence, real_count = _push_and_read_sequence(payload.session_id, vector, redis=redis)
+    pad_count = SEQ_LEN - real_count
+    behavior_sequence_mask = [False] * max(pad_count, 0) + [True] * min(real_count, SEQ_LEN)
+    ae_cold_start = real_count < MIN_SEQ or not has_calibration
+    return behavior_sequence, behavior_sequence_mask, None, ae_cold_start
+
+
 def read_bundle(user_id: str, payload: FeatureReadContext, *, redis: Redis) -> FeatureBundle:
     """Assemble a `FeatureBundle` from Redis online features + the inline payload.
     Reads Redis ONLY (no Postgres). Missing keys (cold-start) fall back to defaults
@@ -184,9 +251,18 @@ def read_bundle(user_id: str, payload: FeatureReadContext, *, redis: Redis) -> F
     hour, dow = _parse_hour(payload.behavior.ts)
     odd_time = hour in ODD_TIME_HOURS
 
+    behavior_features = _behavior_from_payload(payload.behavior)
+    behavior_sequence, behavior_sequence_mask, ae_recon_error, ae_cold_start = _resolve_ae(
+        payload, behavior_features, user_id=user_id, redis=redis
+    )
+
     return FeatureBundle(
         user_id=user_id,
-        behavior=_behavior_from_payload(payload.behavior),
+        behavior=behavior_features,
+        behavior_sequence=behavior_sequence,
+        behavior_sequence_mask=behavior_sequence_mask,
+        ae_recon_error=ae_recon_error,
+        ae_cold_start=ae_cold_start,
         device=DeviceFeatures(
             device_trust=device_trust,
             is_new_device=is_new_device,

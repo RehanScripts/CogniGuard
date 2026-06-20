@@ -122,6 +122,45 @@ Keep this file up to date: when you finish a phase, tick it here in the same PR.
 > raises `OverflowError` for large-magnitude `z` (expected at the tails of a robust-z
 > calibration, not just a theoretical edge case) — fixed with the standard branch-on-sign
 > stable-sigmoid form.
+>
+> **Phase 14 (schema + sequence buffer + feature-reader extensions for AE) is now done**,
+> same branch (`phase-12-model-governance`, no new branch cut — same pattern as Phase
+> 13). Additive-only schema fields: `ScoreResult` gains `behavior_score_source`/
+> `if_shadow_score`/`ae_recon_error`; `BehaviorPayload` gains `ae_recon_error`/
+> `ae_model_version` (mobile-only, **not yet** added to `integrity.canonical_metrics()` —
+> that's Phase 17, once a Kotlin SDK exists to mirror it); `FeatureBundle` gains
+> `behavior_sequence`/`behavior_sequence_mask`/`ae_recon_error`/`ae_cold_start`;
+> `FeatureReadContext` gains `session_id`. The real work is in
+> `gateway/app/services/feature_reader.py`: a capped Redis LIST ring buffer
+> (`behavior:{session_id}:seq`, `RPUSH`+`LTRIM -16 -1`+refreshed 24h `EXPIRE` on every
+> push) for the `web` channel, left-padded to `SEQ_LEN=16` so the most recent sample is
+> always last; `mobile` never touches Redis for this and just folds through its own
+> device-computed `ae_recon_error`. `ae_cold_start` is `True` when fewer than `MIN_SEQ=4`
+> real rows exist (web) or no device `ae_recon_error` was supplied (mobile) **or** no AE
+> calibration exists yet at all (per-user `behavior:{uid}:ae_calib` or population
+> `calib:ae:population` — both still unseeded until Phase 16's `seed_calibration.py`).
+> Two small additions beyond Implementation.md's literal Phase 14 file list: `MIN_SEQ=4`
+> was added to `gateway/app/scoring/autoencoder.py` (alongside the `SEQ_LEN`/`N_FEATURES`
+> it already defined, rather than inventing a second home for it) and
+> `calibration.py`'s inline `f"behavior:{uid}:ae_calib"` was extracted into an exported
+> `user_calibration_key()` so the new cold-start check can reuse the exact key instead of
+> duplicating the string literal. **No caller passes `session_id` yet** —
+> `auth_flow.py`/`payment_flow.py`/`behavior_flow.py` are deliberately untouched, exactly
+> matching Phase 13's "inert by design" pattern; per Phase 15's own file list
+> (`behavior_flow.py` "assemble sequence window pre-score"), wiring real call sites is
+> explicitly *not* this phase's job. Confirmed zero behavior change: every existing
+> caller still gets `ae_cold_start=True`/`behavior_sequence=None` exactly as before, since
+> none of them constructs a `FeatureReadContext` with `session_id` set. Verified:
+> `pytest tests/test_feature_reader.py tests/test_schemas.py tests/test_calibration.py
+> tests/test_autoencoder.py -q` (12 new tests — buffer push/cap/trim-oldest, left-pad
+> shape, cold-start gating on both `MIN_SEQ` and calibration-absence for web and mobile,
+> mobile no-Redis-write) plus the full existing suite (158 passed; the same
+> `test_event_producer.py` Kafka-roundtrip flake from Phase 13, reconfirmed unrelated by
+> reproducing it against this phase's pre-change baseline too). One operational note: the
+> live container's `tests/fixtures/*.json` regenerate themselves with fresh nonces/
+> timestamps as a side effect of running the suite (the documented ~30s freshness-window
+> behavior, §8) — harmless, but worth `git checkout --` reverting before a commit if you
+> want a clean diff.
 
 ---
 
@@ -227,7 +266,7 @@ Status: ✅ done · 🚧 in progress · ⬜ todo. Update the row when you pick u
 | 11 | web-app + bank-dashboard | ✅ | — | phase-6-scoring-service | full demo via `--profile ui` |
 | 12 | Model governance: registry, champion/challenger, drift, feedback loop | ✅ | — | phase-12-model-governance | shadow scoring + promotion + drift |
 | 13 | Calibration layer + LSTM Autoencoder scoring module (ONNX, pure) | ✅ | — | phase-12-model-governance | calibration math + AE scorer tests; registry loads ONNX |
-| 14 | Schema + sequence buffer + feature-reader extensions for AE | ⬜ | | | `behavior:{session_id}:seq` buffer; new schema fields; no behavior change |
+| 14 | Schema + sequence buffer + feature-reader extensions for AE | ✅ | — | phase-12-model-governance | `behavior:{session_id}:seq` buffer; new schema fields; no behavior change |
 | 15 | AE-primary / IF-shadow / fallback routing in the scoring stack | ⬜ | | | AE drives `Behavior_Score`; IF shadow logged; fallback ladder; regression-safe |
 | 16 | LSTM Autoencoder training (ONNX + TFLite + calibration export) | ⬜ | | | trains + exports both artifacts; registry promotion; calib seeded |
 | 17 | Cross-platform integrity canonicalization (mobile AE fields) | ⬜ | | | Python/TS canonical bytes match a shared golden vector |
@@ -340,7 +379,7 @@ models/         local mirror of S3 model artifacts (gitignored)
 - **`canonical(metrics)` agreement never depends on dict/object insertion order, on either side:** `canonical()` (JS) sorts keys via `Object.keys(obj).sort()` at *every* level it recurses into — top-level metrics, nested blocks, objects inside arrays — exactly as Python's `sort_keys=True` re-sorts every dict its encoder visits, at any depth (stdlib guarantee, not just the top level). Neither implementation ever trusts caller-supplied insertion order. `payload.test.ts` has two regression tests for this: `canonical()` given the same logical tree built with reversed key order at every level produces an identical string, and `signPayload()` given two logically-identical `UnsignedPayload`s whose nested objects (`device`, `context`, `keystroke.events[]` entries) declare keys in reverse order — with the system clock frozen via `vi.useFakeTimers()` so `ts` matches and key order is the only variable — produces the same `integrity_sig`. (Array *element* order, e.g. the sequence of keystroke events, is intentionally **not** order-independent — it's meaningful temporal data, not a set — so that test holds the events array order fixed and only varies each event object's own key order.)
 - **Phase 6 inherits the Phase 5 model-quality gap:** improve label quality before trusting `xgboost_txn`'s output in a real demo; per-user `behavior:{id}:baseline` should do the real biometric discrimination once it tracks the full 9-dim vector (see gotcha above) — the global IF prior is only the cold-start fallback, not expected to hit G6 alone.
 - **`phase-5-feature-reader` and `phase-6-scoring-service` are not merged into `main` yet** — `main` currently only has Phase 0–4. Whoever merges should land Phase 5 before Phase 6 (Phase 6 branches from Phase 5, not from `main`). Phases 7, 8, and 9 were all built directly on `phase-6-scoring-service` (same branch, no new branch cut) since they're tightly-coupled follow-ons to Phase 6's scoring service.
-- **Phase 13 is done; Phase 14 (schema + sequence buffer + feature-reader extensions for AE) is next** per the dependency graph (§5). Phases 11, 12, and 13 are on separate/stacked branches (`phase-11-web-app-dashboard`, `phase-12-model-governance` branched from it, Phase 13 built directly on `phase-12-model-governance` with no new branch cut) — none is merged into `main` yet.
+- **Phase 14 is done; Phase 15 (AE-primary/IF-shadow/fallback routing in the scoring stack) is next** per the dependency graph (§5). Phases 11, 12, 13, and 14 are on separate/stacked branches (`phase-11-web-app-dashboard`, `phase-12-model-governance` branched from it, Phases 13–14 built directly on `phase-12-model-governance` with no new branch cut) — none is merged into `main` yet.
 - **Auto-submit Flink job** (gateway startup or a flink-init service) — currently manual.
 - **No real GeoIP/ASN lookup, captcha provider, or WebAuthn/biometric verification** — all demo stand-ins (see Phase 8 gotchas above). Real RBAC for `/admin/*` also still pending (currently a shared `X-Admin-Token` header check).
 - **`gateway/scripts/seed_demo.py` / `generate_fraud_scenarios.py` didn't exist before Phase 11** — Implementation.md §5/§7 described them and `entrypoint.sh` already had the conditional hook, but the files themselves were never written (only `create_topics.py`/`load_datasets.py` existed). Without them, a fresh stack had no demo persona and a freshly-registered user could never reach the clean low-risk `allow` path (no 30-day baseline ⇒ permanent cold-start). Both are now built to full fidelity (genuine persona, policy, Redis baseline/known-sets, `scammer@upi` beneficiary 40 min old, the impostor persona as fixture-only data, and all 5 named fixtures) and reuse existing services exclusively (`policy.DEFAULT_POLICY`, `auth_flow.register/consent_action`, `fingerprint.get_or_create_*`, `integrity.issue_nonce/compute_signature`, `training.train_isolation_forest/train_xgboost`) — no new business logic was invented, only the Redis profile/baseline writer (`_seed_profile_and_baseline`) was genuinely new since nothing else wrote that shape.

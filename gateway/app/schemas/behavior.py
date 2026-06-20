@@ -76,5 +76,10 @@ class BehaviorPayload(BaseModel):
     touch: TouchBlock | None = None
     # mobile_edge: pre-computed features only (raw streams stay on device)
     derived_features: dict[str, float] | None = None
+    # mobile_edge: on-device LSTM Autoencoder output (Implementation.md Phase 14/18).
+    # Not yet part of canonical_metrics()'s signed set -- that's Phase 17's job once the
+    # Kotlin SDK exists to mirror it.
+    ae_recon_error: float | None = None
+    ae_model_version: str | None = None
 
     context: ContextBlock = Field(default_factory=ContextBlock)

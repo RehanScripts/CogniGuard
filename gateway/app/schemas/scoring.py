@@ -34,3 +34,8 @@ class ScoreResult(BaseModel):
     reason_codes: list[ReasonCode] = Field(default_factory=list)
     degraded_mode: bool = False
     latency_ms: int = 0
+    # AE-primary provenance (Implementation.md Phase 14/15) -- unset until Phase 15
+    # wires stack.py to actually route bscore through the autoencoder.
+    behavior_score_source: str | None = None  # "ae" | "if" | "fallback"
+    if_shadow_score: float | None = None
+    ae_recon_error: float | None = None

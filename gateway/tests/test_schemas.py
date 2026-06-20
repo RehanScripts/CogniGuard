@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from app.schemas.behavior import BehaviorPayload
 from app.schemas.decision import DecisionResponse
+from app.schemas.features import FeatureBundle
 from app.schemas.payment import PaymentScoreRequest, PaymentScoreResponse
 from app.schemas.scoring import Amplifier, ScoreResult
 
@@ -84,3 +85,63 @@ def test_payment_response_is_decision_with_base_score():
     )
     assert resp.base_score == 25.0
     assert resp.entity_type == "transaction"
+
+
+# --- Phase 14: additive AE fields default to unset / don't disturb existing contracts -
+
+
+def test_behavior_payload_ae_fields_default_to_none_and_round_trip():
+    p = BehaviorPayload.model_validate(_genuine())
+    assert p.ae_recon_error is None
+    assert p.ae_model_version is None
+
+    raw = _genuine()
+    raw["ae_recon_error"] = 0.37
+    raw["ae_model_version"] = "lstm_autoencoder_tflite@2026-06-01"
+    mobile = BehaviorPayload.model_validate(raw)
+    assert mobile.ae_recon_error == 0.37
+    assert mobile.ae_model_version == "lstm_autoencoder_tflite@2026-06-01"
+
+
+def test_score_result_ae_provenance_fields_default_to_none():
+    s = ScoreResult(
+        behavior_score=0.1,
+        transaction_score=0.27,
+        final_risk_score=27.0,
+        risk_band="low",
+        model_version="xgboost_txn@test",
+    )
+    assert s.behavior_score_source is None
+    assert s.if_shadow_score is None
+    assert s.ae_recon_error is None
+
+    s2 = ScoreResult(
+        behavior_score=0.1,
+        transaction_score=0.27,
+        final_risk_score=27.0,
+        risk_band="low",
+        model_version="xgboost_txn@test",
+        behavior_score_source="ae",
+        if_shadow_score=0.2,
+        ae_recon_error=0.05,
+    )
+    assert s2.behavior_score_source == "ae"
+    assert s2.if_shadow_score == 0.2
+    assert s2.ae_recon_error == 0.05
+
+
+def test_feature_bundle_ae_fields_default_safely():
+    bundle = FeatureBundle(user_id="u1")
+    assert bundle.behavior_sequence is None
+    assert bundle.behavior_sequence_mask is None
+    assert bundle.ae_recon_error is None
+    assert bundle.ae_cold_start is False  # caller (feature_reader) sets this explicitly
+
+    bundle2 = FeatureBundle(
+        user_id="u1",
+        behavior_sequence=[[0.0] * 9, [1.0] * 9],
+        behavior_sequence_mask=[False, True],
+        ae_cold_start=True,
+    )
+    assert bundle2.behavior_sequence == [[0.0] * 9, [1.0] * 9]
+    assert bundle2.ae_cold_start is True
