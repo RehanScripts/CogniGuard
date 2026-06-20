@@ -13,12 +13,24 @@ import threading
 from dataclasses import dataclass
 
 import joblib
+import onnxruntime as ort
 from sqlalchemy import select
 
 from ..config import settings
 from ..db import SessionLocal
 from ..models.governance import ModelRegistry
 from ..s3_client import get_s3
+
+# model_name -> (artifact filename, loader). Phase 13 (Implementation.md) adds the
+# onnxruntime path for `lstm_autoencoder`; `isolation_forest`/`xgboost_txn` keep their
+# existing joblib path unchanged. Anything not listed falls back to the joblib default
+# (the pre-Phase-13 behavior for every model_name there was).
+_ARTIFACT_SPECS: dict[str, tuple[str, object]] = {
+    "isolation_forest": ("model.joblib", joblib.load),
+    "xgboost_txn": ("model.joblib", joblib.load),
+    "lstm_autoencoder": ("model.onnx", ort.InferenceSession),
+}
+_DEFAULT_SPEC = ("model.joblib", joblib.load)
 
 
 @dataclass
@@ -79,10 +91,11 @@ class Registry:
             )
         if row is None:
             raise LookupError(f"no {stage} row for model_name={model_name!r}")
-        local_path = os.path.join(settings.model_dir, model_name, row.version, "model.joblib")
+        filename, loader = _ARTIFACT_SPECS.get(model_name, _DEFAULT_SPEC)
+        local_path = os.path.join(settings.model_dir, model_name, row.version, filename)
         if not os.path.exists(local_path):
             _download(row.artifact_uri, local_path)
-        model = joblib.load(local_path)
+        model = loader(local_path)
         return LoadedModel(
             model_name=model_name, version=row.version, model=model, artifact_uri=row.artifact_uri
         )

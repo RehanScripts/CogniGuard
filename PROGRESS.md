@@ -91,6 +91,37 @@ Keep this file up to date: when you finish a phase, tick it here in the same PR.
 > file-by-file plan and the full plan file for the design rationale. Phase 19
 > (PRD.md/CLAUDE.md/System Architecture.md) is the last phase precisely because those
 > docs should describe the shipped contracts, not the in-flight ones.
+>
+> **Phase 13 (calibration layer + LSTM Autoencoder scoring module) is now done**, on
+> `phase-12-model-governance` (no new branch cut, same pattern as Phases 7–9 on
+> `phase-6-scoring-service`). New pieces, both pure and uncalled by anything yet —
+> `stack.py` is untouched, this phase is inert by design: `gateway/app/scoring/
+> calibration.py` (`CalibrationParams`, `calibrate_ae`/`calibrate_if` — robust-z →
+> logistic, anchored so `raw == threshold → ~0.5`, same 0=normal/1=anomalous polarity as
+> `isolation_forest.behavior_score`; `load_calibration()` reads per-user
+> `behavior:{id}:ae_calib` else population `calib:ae:population` else a built-in
+> default — nothing seeds either Redis key yet, that's Phase 16) and `gateway/app/
+> scoring/autoencoder.py` (`reconstruction_error()` — masked MSE over a `(16,9)` window
+> matching `BEHAVIOR_COLUMNS`, against an **injected** `onnxruntime.InferenceSession`,
+> mirroring `isolation_forest.py`'s injected-model shape; `behavior_score()` runs it
+> through `calibrate_ae`). `gateway/app/scoring/registry.py`'s `_load()` now branches
+> artifact filename + loader by `model_name` (`_ARTIFACT_SPECS` dict) so
+> `lstm_autoencoder` resolves `model.onnx` via `onnxruntime.InferenceSession` while
+> `isolation_forest`/`xgboost_txn` keep their existing `model.joblib`/`joblib.load`
+> path unchanged — `get()`/`reload()`/`get_challenger()` untouched. **Gap not in
+> Implementation.md's Phase 13 file list:** `onnxruntime` wasn't a declared gateway
+> dependency; added `"onnxruntime>=1.17"` to `gateway/pyproject.toml` and rebuilt the
+> image (TensorFlow itself correctly stays out of the gateway, confined to `training/`
+> per the doc). Verified: `pytest tests/test_calibration.py tests/test_autoencoder.py
+> -q` (17 new tests — monotonicity, threshold→~0.5, clamping, population/default
+> fallback, IF-polarity match, masked-MSE correctness including all-masked/short
+> windows, and the registry's onnx-vs-joblib dispatch) plus the full existing suite (147
+> passed; 1 pre-existing Kafka-roundtrip flake in `test_event_producer.py`, confirmed
+> unrelated by reproducing it against the pre-Phase-13 baseline too). One real bug
+> caught by the clamping test: `calibration._logistic`'s naive `1/(1+exp(-z))` form
+> raises `OverflowError` for large-magnitude `z` (expected at the tails of a robust-z
+> calibration, not just a theoretical edge case) — fixed with the standard branch-on-sign
+> stable-sigmoid form.
 
 ---
 
@@ -195,7 +226,7 @@ Status: ✅ done · 🚧 in progress · ⬜ todo. Update the row when you pick u
 | 10 | behavior-sdk (TypeScript) | ✅ | — | phase-6-scoring-service | capture + signed payload; SDK tests |
 | 11 | web-app + bank-dashboard | ✅ | — | phase-6-scoring-service | full demo via `--profile ui` |
 | 12 | Model governance: registry, champion/challenger, drift, feedback loop | ✅ | — | phase-12-model-governance | shadow scoring + promotion + drift |
-| 13 | Calibration layer + LSTM Autoencoder scoring module (ONNX, pure) | ⬜ | | | calibration math + AE scorer tests; registry loads ONNX |
+| 13 | Calibration layer + LSTM Autoencoder scoring module (ONNX, pure) | ✅ | — | phase-12-model-governance | calibration math + AE scorer tests; registry loads ONNX |
 | 14 | Schema + sequence buffer + feature-reader extensions for AE | ⬜ | | | `behavior:{session_id}:seq` buffer; new schema fields; no behavior change |
 | 15 | AE-primary / IF-shadow / fallback routing in the scoring stack | ⬜ | | | AE drives `Behavior_Score`; IF shadow logged; fallback ladder; regression-safe |
 | 16 | LSTM Autoencoder training (ONNX + TFLite + calibration export) | ⬜ | | | trains + exports both artifacts; registry promotion; calib seeded |
@@ -309,7 +340,7 @@ models/         local mirror of S3 model artifacts (gitignored)
 - **`canonical(metrics)` agreement never depends on dict/object insertion order, on either side:** `canonical()` (JS) sorts keys via `Object.keys(obj).sort()` at *every* level it recurses into — top-level metrics, nested blocks, objects inside arrays — exactly as Python's `sort_keys=True` re-sorts every dict its encoder visits, at any depth (stdlib guarantee, not just the top level). Neither implementation ever trusts caller-supplied insertion order. `payload.test.ts` has two regression tests for this: `canonical()` given the same logical tree built with reversed key order at every level produces an identical string, and `signPayload()` given two logically-identical `UnsignedPayload`s whose nested objects (`device`, `context`, `keystroke.events[]` entries) declare keys in reverse order — with the system clock frozen via `vi.useFakeTimers()` so `ts` matches and key order is the only variable — produces the same `integrity_sig`. (Array *element* order, e.g. the sequence of keystroke events, is intentionally **not** order-independent — it's meaningful temporal data, not a set — so that test holds the events array order fixed and only varies each event object's own key order.)
 - **Phase 6 inherits the Phase 5 model-quality gap:** improve label quality before trusting `xgboost_txn`'s output in a real demo; per-user `behavior:{id}:baseline` should do the real biometric discrimination once it tracks the full 9-dim vector (see gotcha above) — the global IF prior is only the cold-start fallback, not expected to hit G6 alone.
 - **`phase-5-feature-reader` and `phase-6-scoring-service` are not merged into `main` yet** — `main` currently only has Phase 0–4. Whoever merges should land Phase 5 before Phase 6 (Phase 6 branches from Phase 5, not from `main`). Phases 7, 8, and 9 were all built directly on `phase-6-scoring-service` (same branch, no new branch cut) since they're tightly-coupled follow-ons to Phase 6's scoring service.
-- **Phase 12 is done; Phase 13 (calibration layer + LSTM Autoencoder) is next** per the dependency graph (§5). Phases 11 and 12 are on separate branches (`phase-11-web-app-dashboard`, `phase-12-model-governance`, the latter branched from the former) — neither is merged into `main` yet.
+- **Phase 13 is done; Phase 14 (schema + sequence buffer + feature-reader extensions for AE) is next** per the dependency graph (§5). Phases 11, 12, and 13 are on separate/stacked branches (`phase-11-web-app-dashboard`, `phase-12-model-governance` branched from it, Phase 13 built directly on `phase-12-model-governance` with no new branch cut) — none is merged into `main` yet.
 - **Auto-submit Flink job** (gateway startup or a flink-init service) — currently manual.
 - **No real GeoIP/ASN lookup, captcha provider, or WebAuthn/biometric verification** — all demo stand-ins (see Phase 8 gotchas above). Real RBAC for `/admin/*` also still pending (currently a shared `X-Admin-Token` header check).
 - **`gateway/scripts/seed_demo.py` / `generate_fraud_scenarios.py` didn't exist before Phase 11** — Implementation.md §5/§7 described them and `entrypoint.sh` already had the conditional hook, but the files themselves were never written (only `create_topics.py`/`load_datasets.py` existed). Without them, a fresh stack had no demo persona and a freshly-registered user could never reach the clean low-risk `allow` path (no 30-day baseline ⇒ permanent cold-start). Both are now built to full fidelity (genuine persona, policy, Redis baseline/known-sets, `scammer@upi` beneficiary 40 min old, the impostor persona as fixture-only data, and all 5 named fixtures) and reuse existing services exclusively (`policy.DEFAULT_POLICY`, `auth_flow.register/consent_action`, `fingerprint.get_or_create_*`, `integrity.issue_nonce/compute_signature`, `training.train_isolation_forest/train_xgboost`) — no new business logic was invented, only the Redis profile/baseline writer (`_seed_profile_and_baseline`) was genuinely new since nothing else wrote that shape.
