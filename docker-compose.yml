@@ -116,13 +116,21 @@ services:
   # --- UI services join in Phase 11; start with:  docker compose --profile ui up --build ---
   web-app:
     profiles: ["ui"]
-    build: ./web-app
+    # Context widened to the repo root (not ./web-app) so the Dockerfile can COPY
+    # behavior-sdk/ and build it before `npm install` resolves web-app's
+    # `file:../behavior-sdk` dependency -- that package ships compiled dist/, not
+    # source, and dist/ wouldn't be reachable from a ./web-app-scoped context.
+    build:
+      context: .
+      dockerfile: web-app/Dockerfile
+    env_file: [.env]
     ports: ["5173:5173"]
     depends_on: [gateway]
 
   bank-dashboard:
     profiles: ["ui"]
     build: ./bank-dashboard
+    env_file: [.env]
     ports: ["5174:5174"]
     depends_on: [gateway]
 

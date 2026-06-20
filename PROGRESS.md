@@ -30,6 +30,42 @@ Keep this file up to date: when you finish a phase, tick it here in the same PR.
 > `CogniGuard.init/attach/collect/startContinuous` API. `npm run build && npm test`
 > green (23 tests) — including a cross-check of `signPayload()`'s `integrity_sig`
 > against an independently computed `node:crypto` HMAC using the same formula.
+>
+> **Phase 11 (web-app + bank-dashboard) is also now done**, same branch. Along the way,
+> a real gap surfaced: `gateway/scripts/seed_demo.py` and `generate_fraud_scenarios.py`
+> (Implementation.md §5/§7) had never actually been written — only `create_topics.py`/
+> `load_datasets.py` existed — so a fresh `docker compose up` had no demo persona and a
+> new user could never escape cold-start. Both scripts are now built (full fidelity:
+> the `genuine` persona + policy + Redis baseline/known-sets + `scammer@upi` beneficiary,
+> and all 5 named fixtures, signed for real via `integrity.issue_nonce`/
+> `compute_signature`), wired into `entrypoint.sh` under `RUN_SEED_ON_START`, and
+> verified end-to-end against the live stack: `genuine`/`Passw0rd!` with steady typing
+> now resolves to `low`/`allow`; the impostor fixture correctly fires `NEW_DEVICE` +
+> high-sigma deviation reason codes (band escalation itself is still capped by the
+> already-documented Phase 5/6 model-quality gap, not a Phase 11 bug); the coercion
+> fixture against `/payment/score` fires `NEW_BENEF_HIGHVAL ×1.5` with cooling + manual
+> amount, exactly per the demo script. `web-app/` (Login → StepUp → Dashboard →
+> Transfer/Payment) and `bank-dashboard/` (Live/UserDetail/Policy/Cases/Governance) are
+> both built, type-checked, linted, and built for production cleanly; `npm test` green
+> in both (9 + 13 tests). `docker compose --profile ui up --build` brings up all three
+> new images alongside the existing stack. See §8 for the gotchas this surfaced
+> (timestamp-skew fixture freshness, the SDK's `startContinuous` blind spot, the
+> `IntegrityFlag`/live-feed gap, and others).
+>
+> **Phases 13–19 (LSTM Autoencoder primary + native Android on-device TFLite) added to
+> the tracker on `phase-6-scoring-service`, none started yet.** This is a deliberate
+> architecture shift from the PRD v2.0 / CLAUDE.md framing of "XGBoost primary + IF net,
+> LSTM is Phase 2 only": the **LSTM Autoencoder becomes the primary behavioral model**
+> (reconstruction error over a rolling 9-dim sequence window → a new common
+> **calibration layer** → unified `Behavior_Score`), **Isolation Forest becomes the
+> cold-start + degradation fallback and runs in shadow** otherwise, and a **native
+> Android (Kotlin) app + capture SDK** runs the autoencoder on-device via TensorFlow
+> Lite so only the reconstruction error/derived features leave the device. The
+> downstream stack (XGBoost, decision engine, amplifiers, bands, reason codes,
+> continuous re-scoring) is unchanged — see Implementation.md Phases 13–19 for the
+> file-by-file plan and the full plan file for the design rationale. Phase 19
+> (PRD.md/CLAUDE.md/System Architecture.md) is the last phase precisely because those
+> docs should describe the shipped contracts, not the in-flight ones.
 
 ---
 
@@ -132,16 +168,25 @@ Status: ✅ done · 🚧 in progress · ⬜ todo. Update the row when you pick u
 | 8 | Gateway flows: integrity, login, step-up, payment, JWT, hardening, consent, audit | ✅ | — | phase-6-scoring-service | `/auth/login` + `/payment/score` return `DecisionResponse` |
 | 9 | Continuous re-scoring + SOC WS broadcaster + case mgmt + RTBF/quarantine jobs | ✅ | — | phase-6-scoring-service | `/behavior/ingest` + `/ws/soc-feed` live |
 | 10 | behavior-sdk (TypeScript) | ✅ | — | phase-6-scoring-service | capture + signed payload; SDK tests |
-| 11 | web-app + bank-dashboard | ⬜ | | | full demo via `--profile ui` |
-| 12 | 
-Model governance: registry, champion/challenger, drift, feedback loop | ⬜ | | | shadow scoring + promotion + drift |
+| 11 | web-app + bank-dashboard | ✅ | — | phase-6-scoring-service | full demo via `--profile ui` |
+| 12 | Model governance: registry, champion/challenger, drift, feedback loop | ⬜ | | | shadow scoring + promotion + drift |
+| 13 | Calibration layer + LSTM Autoencoder scoring module (ONNX, pure) | ⬜ | | | calibration math + AE scorer tests; registry loads ONNX |
+| 14 | Schema + sequence buffer + feature-reader extensions for AE | ⬜ | | | `behavior:{session_id}:seq` buffer; new schema fields; no behavior change |
+| 15 | AE-primary / IF-shadow / fallback routing in the scoring stack | ⬜ | | | AE drives `Behavior_Score`; IF shadow logged; fallback ladder; regression-safe |
+| 16 | LSTM Autoencoder training (ONNX + TFLite + calibration export) | ⬜ | | | trains + exports both artifacts; registry promotion; calib seeded |
+| 17 | Cross-platform integrity canonicalization (mobile AE fields) | ⬜ | | | Python/TS canonical bytes match a shared golden vector |
+| 18 | Native Android app + capture SDK (on-device TFLite) | ⬜ | | | Kotlin signing matches golden vector; on-device AE scores end-to-end |
+| 19 | Docs realignment: PRD.md, CLAUDE.md, System Architecture.md | ⬜ | | | no remaining "LSTM Phase 2 only" claims; AE-primary documented |
 
 **Dependency graph (what can run in parallel):**
 ```
 P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8 → P9 → P11 → P12
                   └───────────────────────────► P10 (SDK; needs only P2's payload shape)
+
+P6 → P13 → P14 → P15 → P17 → P18 → P19
+      P5 ────────► P16 ─────┘
 ```
-P10 (SDK) can start in parallel once Phase 2 contracts are frozen. P11 (UI) needs P8–P10. P12 builds on P5/P6/P9.
+P10 (SDK) can start in parallel once Phase 2 contracts are frozen. P11 (UI) needs P8–P10. P12 builds on P5/P6/P9. P13–19 (LSTM Autoencoder primary + native Android) is a separate track off P6: P16's ONNX/TFLite artifacts feed both P15 (server-side AE) and P18 (Android); P19 (docs) lands last so the authoritative docs describe shipped contracts, not in-flight ones.
 
 ---
 
@@ -164,10 +209,11 @@ Full list in [`CLAUDE.md`](CLAUDE.md) §6. The ones that bite if ignored:
 ```
 gateway/        FastAPI gateway: app/{models,schemas,services,scoring,routers}, scripts/, tests/, alembic/
 flink-jobs/     PyFlink feature engine: feature_engine.py, sinks.py, windows.py, tests/, Dockerfile
-training/       offline training + registry + drift (Phase 5/12)
+training/       offline training + registry + drift (Phase 5/12); train_lstm_autoencoder.py (Phase 16)
 behavior-sdk/   TS capture SDK (Phase 10)
 web-app/        Internet Banking demo (Phase 11)
 bank-dashboard/ Fraud-ops / SOC dashboard (Phase 11)
+android/        Native Android (Kotlin) capture-sdk/ + demo IB app/ (Phase 18 — not started)
 SAMPLE_DATA/    CMU, HMOG (+ hmog_features.csv + eda_report.md), INB_REQ_LOG, TXN_HISTORY_UPI_FIN
 models/         local mirror of S3 model artifacts (gitignored)
 ```
@@ -238,6 +284,17 @@ models/         local mirror of S3 model artifacts (gitignored)
 - **`canonical(metrics)` agreement never depends on dict/object insertion order, on either side:** `canonical()` (JS) sorts keys via `Object.keys(obj).sort()` at *every* level it recurses into — top-level metrics, nested blocks, objects inside arrays — exactly as Python's `sort_keys=True` re-sorts every dict its encoder visits, at any depth (stdlib guarantee, not just the top level). Neither implementation ever trusts caller-supplied insertion order. `payload.test.ts` has two regression tests for this: `canonical()` given the same logical tree built with reversed key order at every level produces an identical string, and `signPayload()` given two logically-identical `UnsignedPayload`s whose nested objects (`device`, `context`, `keystroke.events[]` entries) declare keys in reverse order — with the system clock frozen via `vi.useFakeTimers()` so `ts` matches and key order is the only variable — produces the same `integrity_sig`. (Array *element* order, e.g. the sequence of keystroke events, is intentionally **not** order-independent — it's meaningful temporal data, not a set — so that test holds the events array order fixed and only varies each event object's own key order.)
 - **Phase 6 inherits the Phase 5 model-quality gap:** improve label quality before trusting `xgboost_txn`'s output in a real demo; per-user `behavior:{id}:baseline` should do the real biometric discrimination once it tracks the full 9-dim vector (see gotcha above) — the global IF prior is only the cold-start fallback, not expected to hit G6 alone.
 - **`phase-5-feature-reader` and `phase-6-scoring-service` are not merged into `main` yet** — `main` currently only has Phase 0–4. Whoever merges should land Phase 5 before Phase 6 (Phase 6 branches from Phase 5, not from `main`). Phases 7, 8, and 9 were all built directly on `phase-6-scoring-service` (same branch, no new branch cut) since they're tightly-coupled follow-ons to Phase 6's scoring service.
-- **Phase 10 is done; Phase 11 (web-app + bank-dashboard) is next** per the dependency graph (§5) — it needs Phases 8–10 (gateway flows, this SDK).
+- **Phase 11 is done; Phase 12 (model governance) is next** per the dependency graph (§5).
 - **Auto-submit Flink job** (gateway startup or a flink-init service) — currently manual.
 - **No real GeoIP/ASN lookup, captcha provider, or WebAuthn/biometric verification** — all demo stand-ins (see Phase 8 gotchas above). Real RBAC for `/admin/*` also still pending (currently a shared `X-Admin-Token` header check).
+- **`gateway/scripts/seed_demo.py` / `generate_fraud_scenarios.py` didn't exist before Phase 11** — Implementation.md §5/§7 described them and `entrypoint.sh` already had the conditional hook, but the files themselves were never written (only `create_topics.py`/`load_datasets.py` existed). Without them, a fresh stack had no demo persona and a freshly-registered user could never reach the clean low-risk `allow` path (no 30-day baseline ⇒ permanent cold-start). Both are now built to full fidelity (genuine persona, policy, Redis baseline/known-sets, `scammer@upi` beneficiary 40 min old, the impostor persona as fixture-only data, and all 5 named fixtures) and reuse existing services exclusively (`policy.DEFAULT_POLICY`, `auth_flow.register/consent_action`, `fingerprint.get_or_create_*`, `integrity.issue_nonce/compute_signature`, `training.train_isolation_forest/train_xgboost`) — no new business logic was invented, only the Redis profile/baseline writer (`_seed_profile_and_baseline`) was genuinely new since nothing else wrote that shape.
+- **Fixture freshness is tighter than just "nonce TTL":** `BehaviorPayload.ts` is skew-checked against wall-clock time (`settings.integrity_skew_s`, default 30s), independently of the nonce. A fixture generated at container boot is only good for ~30s after that, not for the rest of the demo session — confirmed by hitting `TIMESTAMP_SKEW`/`INTEGRITY_REJECT` a few minutes after a fresh `docker compose up --build`. Re-run `docker compose exec gateway python -m scripts.generate_fraud_scenarios` immediately before curling/replaying a fixture if more than ~30s has passed since the last generation.
+- **Login's `seq` floor is bound to the device fingerprint forever** (`auth_flow.login`, `seq_binding=device_fp`) — and `login_genuine.json`/`login_impostor.json`/`replay_login.json` use fixed, reused fingerprints by design (that's the whole "known device" story). A hardcoded small `seq` would permanently `SEQ_REPLAY` after the very first successful login against that fingerprint, surviving even a fresh regeneration (regenerating only mints a new nonce, it can't roll back the seq floor). `generate_fraud_scenarios.py`'s `_login_seq()` uses wall-clock milliseconds instead; `test_seed_demo.py`'s own login helper matches that same unit so neither side can produce a smaller value than a floor the other already set. Payment's and `/behavior/ingest`'s `seq` are bound to `session_id` instead (a fresh one every login), so `txn_app_fraud.json`/`ingest_hijack.json` don't have this problem.
+- **web-app's `file:../behavior-sdk` dependency needs `behavior-sdk/dist/` built before `npm install`** — there's no npm workspace at the repo root, and the SDK's `package.json` `main`/`types` point at `dist/`, not source. `web-app/Dockerfile` builds it inline; doing this locally outside Docker needs `cd behavior-sdk && npm install && npm run build` run once before `cd web-app && npm install`. This also forced `web-app`'s `docker-compose.yml` service to widen its build `context` from `./web-app` to the repo root (`context: ., dockerfile: web-app/Dockerfile`) so the Dockerfile can `COPY behavior-sdk/` at all — `bank-dashboard` needed no such change since it doesn't depend on the SDK.
+- **`behavior-sdk.collect()` hardcodes `channel:"web"`** (`index.ts`) — `web-app`'s `ChannelSwitcher` component is therefore visual-only (toggles local UI state, calls an `onChange` callback, has zero effect on captured telemetry). Not fixed by extending the SDK here, since Phase 10 is a frozen contract per CLAUDE.md's "don't invent alternatives" rule.
+- **`CogniGuard.startContinuous()` can't surface its `/behavior/ingest` response to the caller** — its `tick()` posts and discards the result (`index.ts`), so `web-app`'s `Transfer.tsx` has no hook to react to a hijack-triggered `{action:"verify",reauth:true}` inline. The mid-session-hijack demo step (Implementation.md §7.1 step 4) has to be driven by POSTing `ingest_hijack.json` directly against `/behavior/ingest` (bypassing the silent background loop) while the UI is open; the UI-side proof is that the *next* authenticated call 401s because the JWT got denylisted. A real fix (an `onResult` callback param) would touch Phase 10's frozen SDK contract, so it's flagged here rather than silently patched.
+- **`bank-dashboard`'s `/ws/soc-feed` messages carry no `type` discriminator** (confirmed against `gateway/app/schemas/topics.py`/`routers/ws.py`/`services/broadcaster.py`) — `ws.ts`'s `isDecisionEvent`/`isRiskScoreEvent` infer the type from field presence (`action` vs. `final_risk_score`) instead. Fragile if the two schemas ever both grow an overlapping optional field with one of those names.
+- **`IntegrityFlag` is built but can never fire from the live feed today** — `auth_flow.login`/`payment_flow.score_payment`'s early-return `INTEGRITY_REJECT` paths return their reject body directly without ever calling `event_producer.emit_risk_score`/`emit_decision`, and neither `RiskScoreEvent` nor `DecisionEvent` carries an `integrity` field regardless. The component is ready to consume one if a future phase adds it to `DecisionEvent` and makes the reject paths emit too — that's a Phase 7-9 contract change, explicitly out of scope for Phase 11 to make unilaterally.
+- **`bank-dashboard`'s `Governance.tsx`/`DriftPanel` are a deliberate partial placeholder** — `/admin/models`, `/admin/retrain`, and `/admin/drift` don't exist yet (confirmed absent from `admin.py`, Phase 12 work). `LatencyHistogram` is wired to real data today (`EventOut.latency_ms` from the already-existing `GET /admin/events`); `DriftPanel` and the champion/challenger view render a real, working "Phase 12 will wire this" empty state rather than fabricating data.
+- **JWT is stored in `sessionStorage`, not `localStorage`** (`web-app/src/api.ts`) — cleared on tab close, matches the short-lived demo JWT (`JWT_TTL_MINUTES=30`). A real production app would prefer no JWT in any Web Storage at all (in-memory + refresh-token rotation), but that needs a refresh-token endpoint that doesn't exist here; out of scope for this demo.
+- **Both new frontends' `X-Admin-Token`/`signingSecret` come from `VITE_ADMIN_TOKEN`/`VITE_SIGNING_SECRET`** (new `.env`/`.env.example` lines, mirroring `JWT_SECRET`'s dev value) — consistent with the already-accepted precedent that `behavior-sdk`'s signing secret ends up in client-served JS (gotcha above); `bank-dashboard` has no login page by design (`deps.require_admin` is a flat shared-secret check, no real RBAC yet either).

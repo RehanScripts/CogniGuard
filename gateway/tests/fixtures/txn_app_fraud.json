@@ -1,0 +1,82 @@
+{
+  "amount": 50000,
+  "beneficiary_vpa": "scammer@upi",
+  "transfer_type": "UPI",
+  "channel": "web",
+  "behavior": {
+    "channel": "web",
+    "source": "web_sdk",
+    "nonce": "eT2dXqW-K_H1-Z9cm3xB-w",
+    "seq": 1,
+    "ts": "2026-06-20T05:21:28.075471+00:00",
+    "integrity_sig": "3ac822bd2f72256df73a2e056faf3437bfa00f6493879e0f098bfd858c346ee1",
+    "device": {
+      "fingerprint": "known-mumbai-device-001",
+      "ua": "cogniguard-fixture-generator",
+      "screen": "1920x1080",
+      "timezone": "Asia/Kolkata",
+      "language": "en-IN",
+      "platform": "web",
+      "is_rooted": false,
+      "is_emulator": false
+    },
+    "action": {
+      "type": "TRANSFER"
+    },
+    "keystroke": {
+      "events": [
+        {
+          "key": "x",
+          "down": 2.153307133633276,
+          "up": 78.7225369960442
+        },
+        {
+          "key": "x",
+          "down": 193.16073879619822,
+          "up": 273.6611669246282
+        },
+        {
+          "key": "x",
+          "down": 398.2463223045549,
+          "up": 475.70162991660175
+        },
+        {
+          "key": "x",
+          "down": 597.1982293489096,
+          "up": 674.472474572355
+        },
+        {
+          "key": "x",
+          "down": 796.3232438482737,
+          "up": 876.839232947841
+        },
+        {
+          "key": "x",
+          "down": 994.7351187721702,
+          "up": 1070.4728506810006
+        },
+        {
+          "key": "x",
+          "down": 1194.923351059846,
+          "up": 1273.5323974201765
+        },
+        {
+          "key": "x",
+          "down": 1391.501532673214,
+          "up": 1475.8726512789904
+        }
+      ],
+      "field_id": "amount"
+    },
+    "mouse": null,
+    "touch": null,
+    "derived_features": null,
+    "context": {
+      "submitted_at": "",
+      "page": "",
+      "pre_txn_dwell_ms": 0.0,
+      "session_age_s": 0.0,
+      "correction_rate": 0.0
+    }
+  }
+}

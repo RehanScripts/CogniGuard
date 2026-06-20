@@ -1,0 +1,76 @@
+{
+  "channel": "web",
+  "source": "web_sdk",
+  "nonce": "keDlDrLu_jplbOZCC9V8Uw",
+  "seq": 1781932888081,
+  "ts": "2026-06-20T05:21:28.081734+00:00",
+  "integrity_sig": "dea0e150e4f72c4b138bf467ff491a864908d1858c81604024a663f36e32df39",
+  "device": {
+    "fingerprint": "replay-demo-device",
+    "ua": "cogniguard-fixture-generator",
+    "screen": "1920x1080",
+    "timezone": "Asia/Kolkata",
+    "language": "en-IN",
+    "platform": "web",
+    "is_rooted": false,
+    "is_emulator": false
+  },
+  "action": {
+    "type": "LOGIN"
+  },
+  "keystroke": {
+    "events": [
+      {
+        "key": "x",
+        "down": 2.712841953838284,
+        "up": 78.30481051553821
+      },
+      {
+        "key": "x",
+        "down": 196.49730468742806,
+        "up": 278.01768476519675
+      },
+      {
+        "key": "x",
+        "down": 395.6702477017189,
+        "up": 476.29190365141517
+      },
+      {
+        "key": "x",
+        "down": 595.2996473011268,
+        "up": 670.3699197501902
+      },
+      {
+        "key": "x",
+        "down": 792.6804693153003,
+        "up": 871.3962713022534
+      },
+      {
+        "key": "x",
+        "down": 993.0042269869117,
+        "up": 1075.565090750217
+      },
+      {
+        "key": "x",
+        "down": 1192.6876229364445,
+        "up": 1268.2236101661035
+      },
+      {
+        "key": "x",
+        "down": 1392.647383800218,
+        "up": 1473.87909928729
+      }
+    ],
+    "field_id": "username"
+  },
+  "mouse": null,
+  "touch": null,
+  "derived_features": null,
+  "context": {
+    "submitted_at": "",
+    "page": "",
+    "pre_txn_dwell_ms": 0.0,
+    "session_age_s": 0.0,
+    "correction_rate": 0.0
+  }
+}

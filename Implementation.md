@@ -668,6 +668,203 @@ docker compose exec gateway python -m training.drift_monitor   # PSI/KS report; 
 
 ---
 
+### Phase 13 — Behavioral Calibration Layer + LSTM Autoencoder Scoring Module (ONNX)
+
+**Goal:** Introduce the LSTM Autoencoder as a pure, injectable scoring module (mirrors `isolation_forest.py`'s shape) plus the **common calibration layer** that maps either model's anomaly signal to the unified `Behavior_Score`. No behavior change yet — Phase 15 wires this into `stack.py`.
+
+**Files:**
+```
+gateway/app/scoring/calibration.py   # common calibration layer: AE recon-error + IF anomaly → unified Behavior_Score [0,1]
+gateway/app/scoring/autoencoder.py   # load ONNX session, masked-MSE reconstruction error → behavior_score()
+gateway/app/scoring/registry.py      # EDIT: per-model_name artifact loader (joblib vs onnx)
+gateway/tests/test_calibration.py · gateway/tests/test_autoencoder.py
+```
+
+**`calibration.py`** — `CalibrationParams{scale, threshold, temperature}`, per-user (`behavior:{user_id}:ae_calib`) else population (`calib:ae:population`). `calibrate_ae()`/`calibrate_if()` both map via robust-z → logistic, anchored so `recon_error == threshold → ~0.5`; same polarity as IF (0=normal, 1=anomalous) so XGBoost/`explain.py` semantics never change.
+
+**`autoencoder.py`** — `reconstruction_error(sequence, *, model, mask)` over a `(SEQ_LEN=16, 9)` window, masked MSE; `behavior_score(...) = calibrate_ae(reconstruction_error(...))`. `model` is an injected `onnxruntime.InferenceSession` — **no TensorFlow in the gateway image**, only in `training/`.
+
+**`registry.py`** — extend `_load` so `model_name` selects artifact filename + loader: `isolation_forest`/`xgboost_txn` → `model.joblib`/`joblib.load` (unchanged); `lstm_autoencoder` → `model.onnx`/`onnxruntime.InferenceSession`. Thread-safe cache/`reload()` unchanged.
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_calibration.py tests/test_autoencoder.py -q
+# - calibration: monotonic in recon_error; threshold → ~0.5; cold-start clamp; population fallback; IF-polarity match
+# - autoencoder: stub ONNX session → known recon error; short/padded window masked correctly
+# - registry: lstm_autoencoder resolves via the onnxruntime loader; isolation_forest/xgboost_txn still via joblib
+```
+**Depends on:** Phase 6.
+
+---
+
+### Phase 14 — Schema, Sequence Buffer & Feature-Reader Extensions for AE
+
+**Goal:** Add the additive schema fields and the per-session rolling sequence buffer the AE needs, without changing any acted-on behavior yet.
+
+**Files:**
+```
+gateway/app/schemas/scoring.py     # EDIT: ScoreResult + behavior_score_source / if_shadow_score / ae_recon_error
+gateway/app/schemas/behavior.py    # EDIT: BehaviorPayload + ae_recon_error / ae_model_version (signed, mobile-only)
+gateway/app/schemas/features.py    # EDIT: FeatureBundle + behavior_sequence / behavior_sequence_mask / ae_recon_error / ae_cold_start; FeatureReadContext + session_id
+gateway/app/services/feature_reader.py   # EDIT: push/read behavior:{session_id}:seq ring buffer (TTL 24h); mobile reads device-supplied ae_recon_error
+gateway/tests/test_feature_reader.py     # EDIT: sequence buffer push/trim/pad assertions
+```
+
+Redis-only invariant preserved — the ring buffer is a capped Redis LIST trimmed to `SEQ_LEN=16` on each push. Web assembles the window for Phase 15's server-side AE; mobile skips straight to its own device-computed `ae_recon_error`. `ae_cold_start` is set when fewer than `MIN_SEQ=4` real vectors exist or no calibration is available.
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_feature_reader.py tests/test_schemas.py -q
+# - behavior:{session_id}:seq grows then caps at 16, oldest trimmed
+# - web bundle carries behavior_sequence + mask; mobile bundle carries ae_recon_error, no sequence assembly
+# - ae_cold_start True under MIN_SEQ; existing cold_start/Redis-only behavior unchanged
+```
+**Depends on:** Phase 13 (SEQ_LEN/shape agreed), Phase 9 (session_id/behavior_flow plumbing).
+
+---
+
+### Phase 15 — AE-Primary / IF-Shadow / Fallback Routing in the Scoring Stack
+
+**Goal:** The actual behavior change. `stack.py`'s `bscore` producer becomes **AE-primary**; IF is computed **in shadow** (logged, never acted on) and retained as the cold-start/degradation fallback. Downstream (XGBoost, bands, amplifiers, reason codes, very_high termination) is untouched — it only ever sees the resulting unified `bscore`.
+
+**Files:**
+```
+gateway/app/scoring/stack.py            # EDIT: replace the bscore block with AE-primary/IF-shadow/fallback routing
+gateway/app/services/behavior_flow.py   # EDIT: assemble sequence window pre-score; shadow-emission background task
+gateway/app/scoring/explain.py          # EDIT (optional): BEHAVIOR_AE_ANOMALY reason code
+gateway/tests/test_stack_ae.py
+```
+
+```python
+def _behavior_score(bundle, *, registry, redis) -> tuple[float, ScoreProvenance]:
+    if_score, if_ok = _if_shadow(bundle, registry, redis)            # always computed, never acted on
+    if bundle.ae_cold_start:
+        return if_score, ScoreProvenance(source="if", degraded=False)     # cold-start: no AE penalty
+    try:
+        ae_score = _ae_primary(bundle, registry, redis)              # mobile: calibrate device recon error
+        return ae_score, ScoreProvenance(source="ae", degraded=False, if_shadow=if_score)
+    except Exception:
+        return (if_score if if_ok else 0.0), ScoreProvenance(
+            source="if" if if_ok else "fallback", degraded=True)
+```
+The resulting `bscore` flows unchanged into `bundle.xgb_features(behavior_score=bscore)`; the rest of `score()` is untouched. `ScoreResult` gains `behavior_score_source`/`if_shadow_score`/`ae_recon_error` (Phase 14).
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_stack_ae.py -q
+# - AE-primary happy path drives bscore; if_shadow_score present but final_risk_score/risk_band unaffected by it
+# - AE failure → IF fallback, degraded_mode=True; AE cold-start → IF fallback, degraded_mode=False
+# - both fail → bscore=0.0, source="fallback", degraded
+# - regression guard: final_risk_score/risk_band identical to the Phase 6 baseline when bscore is held equal across sources
+```
+**Depends on:** Phases 13, 14.
+
+---
+
+### Phase 16 — LSTM Autoencoder Training Pipeline (ONNX + TFLite + Calibration)
+
+**Goal:** Train the autoencoder offline on genuine CMU+HMOG sequences, export both serving artifacts, and register/seed calibration.
+
+**Files:**
+```
+training/train_lstm_autoencoder.py    # Keras LSTM AE → ONNX (gateway) + TFLite (Android) + CalibrationParams JSON
+training/datasets/cmu.py · hmog.py     # EDIT: sequence_frames() — ordered per-subject (16,9) windows
+training/registry.py · training/s3_io.py   # EDIT: generic write_bytes() for .onnx/.tflite/calib JSON
+gateway/scripts/seed_calibration.py    # NEW: seed calib:ae:population into Redis from registry metrics
+training/tests/test_train_lstm_autoencoder.py
+```
+
+Architecture: `Input(16,9) → Masking → LSTM(32)→LSTM(16) → RepeatVector → LSTM(16,seq)→LSTM(32,seq) → TimeDistributed(Dense(9))`, masked-MSE, **trained on genuine sequences only**. Registers two `model_registry` rows: `lstm_autoencoder` (ONNX) and `lstm_autoencoder_tflite` (TFLite), version stamped `lstm_autoencoder@{date}`.
+
+**Acceptance check:**
+```bash
+docker compose exec gateway python -m training.train_lstm_autoencoder
+docker compose exec gateway pytest training/tests/test_train_lstm_autoencoder.py -q
+# - trains on synthetic genuine sequences; anomaly-injected windows score higher recon error
+# - ONNX export matches Keras within tolerance; TFLite export matches ONNX within tolerance
+# - lstm_autoencoder + lstm_autoencoder_tflite registered production; calib:ae:population seeded in Redis
+```
+**Depends on:** Phase 5 (dataset adapters), Phase 13 (shape contract).
+
+---
+
+### Phase 17 — Cross-Platform Integrity Canonicalization (Mobile AE Fields)
+
+**Goal:** The two new signed fields (`ae_recon_error`, `ae_model_version`) must canonicalize byte-for-byte across Python, TypeScript, and the new Kotlin SDK before any Android payload can verify.
+
+**Files:**
+```
+gateway/app/services/integrity.py        # EDIT: canonical_metrics() + ae_recon_error / ae_model_version
+behavior-sdk/src/payload.ts · types.ts   # EDIT: canonical tree + pyFloat coercion for the two new fields
+behavior-sdk/src/payload.test.ts         # EDIT: golden canonical bytes
+gateway/tests/test_integrity_mobile.py · gateway/tests/fixtures/golden_canonical_mobile.json   # NEW shared golden vector
+```
+
+The golden-vector fixture (one known mobile `BehaviorPayload` → expected canonical string → expected HMAC) is asserted by this phase's pytest **and** by Phase 18's Android instrumentation test — the only way to pin three independent implementations to identical bytes.
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_integrity_mobile.py -q
+cd behavior-sdk && npm test
+# - canonical_metrics output for the golden mobile payload matches the fixture string exactly
+# - HMAC over that canonical string matches the fixture signature
+# - TS canonical()/pyFloat() produce byte-identical output for the same payload
+```
+**Depends on:** Phase 14 (new signed fields exist).
+
+---
+
+### Phase 18 — Native Android App + Capture SDK (On-Device TFLite)
+
+**Goal:** A native Android (Kotlin) capture SDK + demo IB app that captures keystroke/touch/motion telemetry, runs the autoencoder **on-device** via TensorFlow Lite, and sends only the reconstruction error + derived features — no raw biometric data leaves the device (NFR-10).
+
+**Files:**
+```
+android/capture-sdk/   # KeystrokeCapture.kt · TouchCapture.kt · MotionCapture.kt · edge/MobileFeatures.kt
+                        # integrity/Canonical.kt · integrity/Signer.kt · fingerprint/DeviceFingerprint.kt
+                        # security/RootDetection.kt · ml/AutoencoderTFLite.kt · net/CogniGuardClient.kt · model/Payload.kt
+android/app/            # LoginActivity · TransferActivity (demo IB app, parity with web-app)
+gateway/app/routers/mobile.py             # NEW, thin: GET /api/v1/mobile/ae-model, GET /api/v1/mobile/ae-calib/{user_id}
+gateway/app/services/mobile_distribution.py  # NEW: resolve current lstm_autoencoder_tflite version + calib
+android/capture-sdk/src/androidTest/   # CanonicalTest · SignerTest · MobileFeaturesTest · AutoencoderTFLiteTest
+```
+
+`Canonical.kt`/`Signer.kt` reproduce Phase 17's golden vector byte-for-byte. `AutoencoderTFLite.kt` bundles `assets/model.tflite`, runs the on-device `(16,9)` window through the TFLite Interpreter, and sends the **raw** recon error (gateway calibrates, same as web). Root/emulator detection feeds `is_rooted`/`is_emulator`.
+
+**Acceptance check:**
+```bash
+./gradlew :capture-sdk:connectedAndroidTest
+# - CanonicalTest/SignerTest match Phase 17's shared golden vector exactly
+# - MobileFeaturesTest matches edge.test.ts reference values
+# - AutoencoderTFLiteTest recon error within tolerance of the ONNX server model on the same input
+docker compose exec gateway pytest tests/test_mobile_integration.py -q
+# - an Android-signed fixture payload verifies + scores via the AE-mobile path end-to-end
+```
+**Depends on:** Phase 16 (`.tflite` artifact), Phase 17 (signing parity), Phase 14 (contract).
+
+---
+
+### Phase 19 — Documentation Realignment (PRD / CLAUDE.md / System Architecture)
+
+**Goal:** Make the AE-primary / IF-shadow-fallback architecture and the native Android on-device path first-class in the three authoritative docs, replacing the "LSTM is Phase 2 only" framing they currently state.
+
+**Files:**
+```
+CLAUDE.md                  # EDIT: §1/§2/§5/§6 invariant 5/§7 glossary
+System Architecture.md     # EDIT: §5 payload/ScoreResult, §8-9 stacking diagram + calibration layer, Redis key catalog, mobile section
+PRD.md                      # EDIT: model-stack table, Phase-2 roadmap, NFR-10 data-minimization win
+```
+
+**Acceptance check:**
+```bash
+grep -n "Phase 2" CLAUDE.md "System Architecture.md" PRD.md   # no remaining "LSTM is Phase 2 only" claims
+# manual review: invariant 5 reads AE-primary/IF-shadow-fallback; lstm_autoencoder/lstm_autoencoder_tflite
+# model names present in all three docs
+```
+**Depends on:** Phases 13–18 (docs describe the shipped contracts).
+
+---
+
 ## 4. API Implementation Reference
 
 All paths prefixed `/api/v1` except the WebSocket. Mirrors PRD §11/§17 and Architecture §5/§6.
@@ -826,13 +1023,17 @@ On startup the gateway runs migrations + `seed_demo.py`, registers production mo
 ```
 P0 ─▶ P1 ─▶ P2 ─▶ P3 ─▶ P4 ─▶ P5 ─▶ P6 ─▶ P7 ─▶ P8 ─▶ P9 ─▶ P11 ─▶ P12
                   └────────────────────────────────────▶ P10 ─────────┘
+
+P6 ──▶ P13 ──▶ P14 ──▶ P15 ──▶ P17 ──▶ P18 ──▶ P19
+        P5 ──────────▶ P16 ───────────┘
 ```
-P10 (behavior-sdk) needs only P2's payload shape and can proceed in parallel once schemas are frozen. P12 (governance) builds on P5/P6/P9.
+P10 (behavior-sdk) needs only P2's payload shape and can proceed in parallel once schemas are frozen. P12 (governance) builds on P5/P6/P9. P13–19 (LSTM Autoencoder primary + native Android on-device TFLite) is a separate track off P6: P16's ONNX/TFLite artifacts feed both P15 (server-side AE) and P18 (Android); P19 documents the shipped contracts last.
 
 ## Appendix B — Consistency Anchors (do not drift)
 - **Repo root** `cogniguard/`, tree exactly per Architecture §9.
 - **Pipeline:** `Gateway → Kafka → Flink → Redis Feature Store → Risk Models → Decision Engine → Dashboard`; inference reads **Redis only**.
-- **Models:** XGBoost primary (stacked on IF `Behavior_Score`) → one fraud probability; weighted alt 60/25/15; LSTM Phase 2.
+- **Models (current, through Phase 12):** XGBoost primary (stacked on IF `Behavior_Score`) → one fraud probability; weighted alt 60/25/15.
+- **Models (Phases 13–18, in progress):** LSTM Autoencoder becomes the primary behavioral model (reconstruction error → calibration layer → `Behavior_Score`); Isolation Forest becomes the cold-start/degradation fallback and runs in shadow otherwise; stacking into XGBoost is unchanged downstream. Until Phase 15 lands, the Phase 6 IF→XGBoost path remains the one actually live.
 - **Bands** `low` 0–30 / `medium` 30–60 / `high` 60–100 / `very_high` ≥85; **decisions** `allow`/`verify`/`block`; from active policy.
 - **Amplifiers** `NEW_BENEF_HIGHVAL ×1.5, RAPID_FANOUT ×1.4, DRAIN ×1.3, COERCION_TIME ×1.2`; `final = clamp(base × Π, 0, 100)`.
 - **Integrity-sig:** `HMAC-SHA256(nonce ‖ canonical(metrics) ‖ device_fingerprint ‖ ts)`; single-use nonce (Redis `nonce:{n}` TTL, DEL on consume); monotonic `seq`; reject → `INTEGRITY_REJECT`.
