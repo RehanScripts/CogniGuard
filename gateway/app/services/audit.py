@@ -25,6 +25,7 @@ def persist_risk_score(
     entity_type: str,
     entity_id: uuid.UUID | str,
     user_id: uuid.UUID | str | None,
+    is_shadow: bool = False,
 ) -> RiskScore:
     row = RiskScore(
         entity_type=entity_type,
@@ -37,6 +38,7 @@ def persist_risk_score(
         risk_band=result.risk_band,
         model_version=result.model_version,
         latency_ms=result.latency_ms,
+        is_shadow=is_shadow,
     )
     db.add(row)
     db.commit()

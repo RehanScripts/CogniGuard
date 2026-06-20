@@ -49,6 +49,45 @@ export interface CaseUpdate {
   note?: string;
 }
 
+export interface ModelVersionOut {
+  model_id: string;
+  version?: string | null;
+  stage?: "staging" | "production" | "archived" | null;
+  model_type?: string | null;
+  metrics: Record<string, number>;
+  artifact_uri?: string | null;
+  deployed_at?: string | null;
+}
+
+export interface ModelOut {
+  model_name: string;
+  versions: ModelVersionOut[];
+}
+
+export interface DriftColumnReport {
+  skipped?: boolean;
+  reason?: string;
+  psi?: number;
+  ks_stat?: number;
+  ks_pvalue?: number;
+  n_live?: number;
+  n_reference?: number;
+  breached?: boolean;
+}
+
+export interface DriftReportOut {
+  window: { live_start: string; live_end: string; reference_start: string; reference_end: string };
+  columns: Record<string, DriftColumnReport>;
+  outcome: {
+    n_resolved: number;
+    n_confirmed_fraud: number;
+    n_false_positive: number;
+    precision: number | null;
+  };
+  breaches: Record<string, unknown>[];
+  retrained_models: string[];
+}
+
 export interface PolicyDict {
   scoring_mode: "stacked" | "weighted";
   weights: Record<string, number>;
@@ -120,4 +159,12 @@ export function patchCase(caseId: string, update: CaseUpdate): Promise<ApiResult
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(update),
   });
+}
+
+export function listModels(): Promise<ApiResult<ModelOut[]>> {
+  return adminRequest("/api/v1/admin/models");
+}
+
+export function getDrift(): Promise<ApiResult<DriftReportOut>> {
+  return adminRequest("/api/v1/admin/drift");
 }

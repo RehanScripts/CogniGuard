@@ -58,15 +58,27 @@ class Registry:
         with self._lock:
             self._cache.pop(model_name, None)
 
-    def _load(self, model_name: str) -> LoadedModel:
+    def get_challenger(self, model_name: str) -> LoadedModel | None:
+        """Resolve the `stage="staging"` row for `model_name`, if one exists -- used by
+        `app.scoring.shadow` to run a challenger alongside the champion (Implementation.md
+        Phase 12). Returns `None` rather than raising when no challenger is registered,
+        the common case: shadow.py must be a safe no-op then, not an error path. Not
+        cached -- challengers are registered rarely and shadow-scored at most once per
+        request, so a process-wide cache isn't worth the staleness risk here."""
+        try:
+            return self._load(model_name, stage="staging")
+        except LookupError:
+            return None
+
+    def _load(self, model_name: str, *, stage: str = "production") -> LoadedModel:
         with SessionLocal() as session:
             row = session.scalar(
                 select(ModelRegistry)
-                .where(ModelRegistry.model_name == model_name, ModelRegistry.stage == "production")
+                .where(ModelRegistry.model_name == model_name, ModelRegistry.stage == stage)
                 .order_by(ModelRegistry.deployed_at.desc())
             )
         if row is None:
-            raise LookupError(f"no production row for model_name={model_name!r}")
+            raise LookupError(f"no {stage} row for model_name={model_name!r}")
         local_path = os.path.join(settings.model_dir, model_name, row.version, "model.joblib")
         if not os.path.exists(local_path):
             _download(row.artifact_uri, local_path)

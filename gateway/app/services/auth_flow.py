@@ -40,7 +40,7 @@ from ..schemas.auth import (
 from ..schemas.decision import DecisionResponse, Hardening
 from ..schemas.features import FeatureReadContext
 from ..schemas.scoring import ReasonCode
-from ..scoring import stack
+from ..scoring import shadow, stack
 from ..scoring.registry import Registry
 from ..utils import fingerprint, security
 from . import audit, case_mgmt, consent, event_producer, feature_reader, hardening, integrity
@@ -324,6 +324,17 @@ def login(
         db,
         result,
         response,
+        entity_type="login",
+        entity_id=session_row.session_id if session_row else kafka_session_id,
+        user_id=user.user_id,
+    )
+    background_tasks.add_task(
+        shadow.run_and_persist,
+        db,
+        bundle,
+        policy=policy,
+        registry=registry,
+        redis=redis,
         entity_type="login",
         entity_id=session_row.session_id if session_row else kafka_session_id,
         user_id=user.user_id,

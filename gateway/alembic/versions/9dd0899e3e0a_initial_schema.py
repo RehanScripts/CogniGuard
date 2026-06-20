@@ -108,6 +108,7 @@ def upgrade() -> None:
     sa.Column('risk_band', sa.String(length=12), nullable=True),
     sa.Column('model_version', sa.String(length=64), nullable=True),
     sa.Column('latency_ms', sa.Integer(), nullable=True),
+    sa.Column('is_shadow', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.Column('scored_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['users.user_id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('score_id')

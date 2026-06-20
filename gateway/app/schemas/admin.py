@@ -16,6 +16,7 @@ class PolicyUpdate(BaseModel):
     stepup: dict = Field(default_factory=dict)  # assurance ladder
     cooling_off: dict = Field(default_factory=dict)
     hardening: dict = Field(default_factory=dict)
+    drift: dict = Field(default_factory=dict)  # PSI/KS + outcome-precision breach thresholds
 
 
 class EventOut(BaseModel):
@@ -56,3 +57,34 @@ class CaseOut(BaseModel):
     assigned_to: str | None = None
     created_at: str | None = None
     resolved_at: str | None = None
+
+
+class ModelVersionOut(BaseModel):
+    model_id: str
+    version: str | None = None
+    stage: str | None = None  # staging|production|archived
+    model_type: str | None = None
+    metrics: dict = Field(default_factory=dict)
+    artifact_uri: str | None = None
+    deployed_at: str | None = None
+
+
+class ModelOut(BaseModel):
+    model_name: str
+    versions: list[ModelVersionOut] = Field(default_factory=list)
+
+
+class PromoteRequest(BaseModel):
+    version: str | None = None  # defaults to the latest staging row for the model
+
+
+class RollbackRequest(BaseModel):
+    version: str  # must be an archived version of the model
+
+
+class DriftReportOut(BaseModel):
+    window: dict
+    columns: dict
+    outcome: dict
+    breaches: list[dict] = Field(default_factory=list)
+    retrained_models: list[str] = Field(default_factory=list)

@@ -1,7 +1,7 @@
 import datetime as dt
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Index, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Index, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,6 +32,10 @@ class RiskScore(Base):
     risk_band: Mapped[str | None] = mapped_column(String(12))  # low|medium|high|very_high
     model_version: Mapped[str | None] = mapped_column(String(64))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    # Phase 12 challenger/shadow scoring (Implementation.md §12): True for a row produced
+    # by scoring/shadow.py's challenger run alongside the champion -- never acted on, never
+    # broadcast to the live SOC feed, excluded from /admin/events by default.
+    is_shadow: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     scored_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )

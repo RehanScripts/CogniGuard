@@ -12,6 +12,7 @@ Runnable standalone:  python -m training.train_isolation_forest
 
 from __future__ import annotations
 
+import argparse
 import datetime as dt
 import logging
 import os
@@ -87,7 +88,7 @@ def validate_g6_eer(cmu_behavior: pd.DataFrame, *, seed: int = 42) -> float:
     return _eer(np.array(genuine_scores), np.array(impostor_scores))
 
 
-def main() -> dict:
+def main(*, stage: str = "production") -> dict:
     cmu_behavior = s3_io.read_parquet("training/cmu/behavior.parquet")
     hmog_cleaned = s3_io.read_parquet("training/hmog/behavior.parquet")
     hmog_behavior = hmog.behavior_frame(hmog_cleaned).dropna(subset=HMOG_COLUMNS)
@@ -113,12 +114,21 @@ def main() -> dict:
         version=version,
         artifact_uri=artifact_uri,
         metrics=metrics,
+        stage=stage,
     )
     return {"version": version, "artifact_uri": artifact_uri, **metrics}
 
 
 if __name__ == "__main__":
     logging.basicConfig(level="INFO")
-    result = main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--stage",
+        choices=["staging", "production"],
+        default="production",
+        help="register the trained model as a challenger (staging) or champion (production)",
+    )
+    args = parser.parse_args()
+    result = main(stage=args.stage)
     for key, value in result.items():
         print(f"{key}: {value}")

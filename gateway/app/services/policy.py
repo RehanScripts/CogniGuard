@@ -51,6 +51,16 @@ DEFAULT_POLICY: dict[str, Any] = {
     },
     "cooling_off": {"minutes": 30, "reconfirm_channel": "APP_PUSH"},
     "hardening": {"delay_after": 3, "captcha_after": 4, "lock_after": 5, "lock_minutes": 15},
+    # Phase 12 drift_monitor breach thresholds (Implementation.md §12) -- PSI/KS on the
+    # risk_scores score columns, live window vs. an older reference window, plus outcome
+    # precision over resolved cases. Never hardcoded in drift_monitor.py (CLAUDE.md #6).
+    "drift": {
+        "psi_alert": 0.25,
+        "ks_alert": 0.2,
+        "lookback_hours": 24,
+        "reference_hours": 168,
+        "min_samples": 30,
+    },
 }
 
 

@@ -16,6 +16,7 @@ Runnable standalone:  python -m training.train_xgboost
 
 from __future__ import annotations
 
+import argparse
 import datetime as dt
 import logging
 import math
@@ -55,7 +56,7 @@ def _prepare(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def main() -> dict:
+def main(*, stage: str = "production") -> dict:
     df = _prepare(s3_io.read_parquet("training/txn/transactions.parquet"))
     X = df[FEATURE_COLUMNS].to_numpy(float)
     y = df["label"].to_numpy(int)
@@ -109,12 +110,21 @@ def main() -> dict:
         version=version,
         artifact_uri=artifact_uri,
         metrics=metrics,
+        stage=stage,
     )
     return {"version": version, "artifact_uri": artifact_uri, "auc": auc, "n_positive": n_pos}
 
 
 if __name__ == "__main__":
     logging.basicConfig(level="INFO")
-    result = main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--stage",
+        choices=["staging", "production"],
+        default="production",
+        help="register the trained model as a challenger (staging) or champion (production)",
+    )
+    args = parser.parse_args()
+    result = main(stage=args.stage)
     for key, value in result.items():
         print(f"{key}: {value}")

@@ -30,7 +30,7 @@ from ..models.user import Account, User
 from ..schemas.features import FeatureReadContext
 from ..schemas.payment import PaymentScoreRequest, PaymentScoreResponse
 from ..schemas.scoring import ReasonCode
-from ..scoring import stack
+from ..scoring import shadow, stack
 from ..scoring.amplifiers import NEW_PAYEE_AMOUNT_RATIO, TxnContext
 from ..scoring.registry import Registry
 from ..utils import fingerprint
@@ -291,6 +291,18 @@ def score_payment(
         db,
         result,
         response,
+        entity_type="transaction",
+        entity_id=transaction_id,
+        user_id=user.user_id,
+    )
+    background_tasks.add_task(
+        shadow.run_and_persist,
+        db,
+        bundle,
+        policy=policy,
+        registry=registry,
+        redis=redis,
+        txn_context=txn_ctx,
         entity_type="transaction",
         entity_id=transaction_id,
         user_id=user.user_id,

@@ -1,7 +1,6 @@
-"""Admin router (Implementation.md Phase 8 subset + Phase 9 `/cases`): `/events`,
-`/users/{id}`, `/policy` GET/PUT, `/cases` GET/PATCH. `/models/.../promote`+`/retrain`
-need Phase 12's governance service, which doesn't exist yet -- not built here. All
-behind `deps.require_admin`.
+"""Admin router (Implementation.md Phase 8 subset + Phase 9 `/cases` + Phase 12
+`/models`+`/drift`): `/events`, `/users/{id}`, `/policy` GET/PUT, `/cases` GET/PATCH,
+`/models` GET/promote/rollback, `/drift` GET. All behind `deps.require_admin`.
 """
 
 from __future__ import annotations
@@ -13,13 +12,27 @@ from redis import Redis
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
+from training import drift_monitor, promote
+
 from .. import deps
 from ..models.behavior import BehaviorSample
 from ..models.device import UserDevice
-from ..models.governance import Case
+from ..models.governance import Case, ModelRegistry
 from ..models.scoring import Decision, RiskScore
 from ..models.user import User
-from ..schemas.admin import CaseOut, CaseUpdate, EventOut, PolicyUpdate, UserDetailOut
+from ..scoring.registry import Registry
+from ..schemas.admin import (
+    CaseOut,
+    CaseUpdate,
+    DriftReportOut,
+    EventOut,
+    ModelOut,
+    ModelVersionOut,
+    PolicyUpdate,
+    PromoteRequest,
+    RollbackRequest,
+    UserDetailOut,
+)
 from ..services import case_mgmt
 from ..services.policy import POLICY_REDIS_KEY, active_policy
 
@@ -49,7 +62,14 @@ def list_events(
     limit: int = Query(default=50, le=500),
     db: DbSession = Depends(deps.get_db),
 ) -> list[EventOut]:
-    stmt = select(RiskScore).order_by(RiskScore.scored_at.desc()).limit(limit)
+    # Shadow (challenger) rows are for offline comparison only -- the live SOC feed must
+    # never show them (Implementation.md Phase 12).
+    stmt = (
+        select(RiskScore)
+        .where(RiskScore.is_shadow.is_(False))
+        .order_by(RiskScore.scored_at.desc())
+        .limit(limit)
+    )
     if band:
         stmt = stmt.where(RiskScore.risk_band == band)
     if user_id:
@@ -84,7 +104,7 @@ def get_user_detail(user_id: str, db: DbSession = Depends(deps.get_db)) -> UserD
     devices = db.scalars(select(UserDevice).where(UserDevice.user_id == uid)).all()
     recent = db.scalars(
         select(RiskScore)
-        .where(RiskScore.user_id == uid)
+        .where(RiskScore.user_id == uid, RiskScore.is_shadow.is_(False))
         .order_by(RiskScore.scored_at.desc())
         .limit(20)
     ).all()
@@ -161,3 +181,82 @@ def patch_case(case_id: str, update: CaseUpdate, db: DbSession = Depends(deps.ge
     except ValueError:
         raise HTTPException(status_code=404, detail="case not found")
     return _case_out(case)
+
+
+def _model_version_out(row: ModelRegistry) -> ModelVersionOut:
+    return ModelVersionOut(
+        model_id=str(row.model_id),
+        version=row.version,
+        stage=row.stage,
+        model_type=row.model_type,
+        metrics=row.metrics or {},
+        artifact_uri=row.artifact_uri,
+        deployed_at=row.deployed_at.isoformat() if row.deployed_at else None,
+    )
+
+
+def _models_by_name(db: DbSession, *, model_name: str | None = None) -> list[ModelOut]:
+    stmt = select(ModelRegistry).order_by(ModelRegistry.deployed_at.desc())
+    if model_name:
+        stmt = stmt.where(ModelRegistry.model_name == model_name)
+    grouped: dict[str, list[ModelVersionOut]] = {}
+    for row in db.scalars(stmt).all():
+        grouped.setdefault(row.model_name or "", []).append(_model_version_out(row))
+    return [ModelOut(model_name=name, versions=versions) for name, versions in grouped.items()]
+
+
+@router.get("/models", response_model=list[ModelOut])
+def list_models(db: DbSession = Depends(deps.get_db)) -> list[ModelOut]:
+    return _models_by_name(db)
+
+
+@router.get("/models/{model_name}", response_model=ModelOut)
+def get_model(model_name: str, db: DbSession = Depends(deps.get_db)) -> ModelOut:
+    found = _models_by_name(db, model_name=model_name)
+    if not found:
+        raise HTTPException(status_code=404, detail="model not found")
+    return found[0]
+
+
+@router.post("/models/{model_name}/promote", response_model=ModelOut)
+def promote_model(
+    model_name: str,
+    body: PromoteRequest,
+    db: DbSession = Depends(deps.get_db),
+    registry: Registry = Depends(deps.get_registry),
+) -> ModelOut:
+    try:
+        promote.promote_to_production(model_name, body.version)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    registry.reload(model_name)
+    return _models_by_name(db, model_name=model_name)[0]
+
+
+@router.post("/models/{model_name}/rollback", response_model=ModelOut)
+def rollback_model(
+    model_name: str,
+    body: RollbackRequest,
+    db: DbSession = Depends(deps.get_db),
+    registry: Registry = Depends(deps.get_registry),
+) -> ModelOut:
+    try:
+        promote.rollback(model_name, body.version)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    registry.reload(model_name)
+    return _models_by_name(db, model_name=model_name)[0]
+
+
+@router.get("/drift", response_model=DriftReportOut)
+def get_drift(
+    db: DbSession = Depends(deps.get_db), redis: Redis = Depends(deps.get_redis)
+) -> DriftReportOut:
+    # Read-only observability -- only the CLI/scheduled path (training.drift_monitor's
+    # __main__) triggers retrains; a GET must never have that side effect.
+    report = drift_monitor.run(db, policy=active_policy(redis=redis), trigger_retrain=False)
+    return DriftReportOut(**report)

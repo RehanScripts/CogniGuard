@@ -25,7 +25,7 @@ from ..schemas.behavior import BehaviorPayload
 from ..schemas.decision import BehaviorIngestResponse, DecisionResponse
 from ..schemas.features import FeatureReadContext
 from ..schemas.scoring import ReasonCode
-from ..scoring import stack
+from ..scoring import shadow, stack
 from ..scoring.registry import Registry
 from ..utils import security
 from . import audit, case_mgmt, event_producer, feature_reader, integrity
@@ -147,6 +147,17 @@ def ingest(
         db,
         result,
         decision_response,
+        entity_type="transaction",
+        entity_id=session.session_id,
+        user_id=user.user_id,
+    )
+    background_tasks.add_task(
+        shadow.run_and_persist,
+        db,
+        bundle,
+        policy=policy,
+        registry=registry,
+        redis=redis,
         entity_type="transaction",
         entity_id=session.session_id,
         user_id=user.user_id,
