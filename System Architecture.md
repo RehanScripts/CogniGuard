@@ -4,9 +4,11 @@
 
 **Companion to:** `PRD.md`
 **Audience:** Implementers (Claude Code) & reviewers
-**Version:** 3.0 · 2026-06-17 · **aligned to PRD v2.0 (orchestration rewrite)**
+**Version:** 3.1 · 2026-06-21 · **aligned to PRD v3.0 (AE-primary + native Android)**
 
-> **v3.0 changelog (Rakshak → CogniGuard):** Re-platformed from a single FastAPI service to a **streaming-ML** topology — `Mobile/Web → API Gateway → Kafka → Flink → Redis Feature Store → Risk Models → Decision Engine → Dashboard`. Model stack is now **XGBoost (primary, supervised)** stacked on **Isolation Forest (anomaly safety net)**; **LSTM/Transformer** is Phase 2. Decisions are **`allow` / `verify` / `block`** over four bands (`low`/`medium`/`high`/`very_high`). **All graph-database and graph-based mule-network detection is removed from every phase.** Latency budgets: **login p95 < 300 ms, payment p95 < 500 ms**. Polyglot persistence: PostgreSQL (OLTP record) · Kafka (event log) · Redis (online feature store, the only inference-time read store) · S3 (data lake).
+> **v3.0 changelog (Rakshak → CogniGuard):** Re-platformed from a single FastAPI service to a **streaming-ML** topology — `Mobile/Web → API Gateway → Kafka → Flink → Redis Feature Store → Risk Models → Decision Engine → Dashboard`. Decisions are **`allow` / `verify` / `block`** over four bands (`low`/`medium`/`high`/`very_high`). **All graph-database and graph-based mule-network detection is removed from every phase.** Latency budgets: **login p95 < 300 ms, payment p95 < 500 ms**. Polyglot persistence: PostgreSQL (OLTP record) · Kafka (event log) · Redis (online feature store, the only inference-time read store) · S3 (data lake).
+>
+> **v3.1 changelog:** The behavioral model stack is now **AE-primary / IF-shadow-fallback**, not the v3.0-era "IF primary, LSTM is Phase 2" framing — an **LSTM Autoencoder** (reconstruction error → calibration layer → `Behavior_Score`) is the primary behavioral signal, served via **ONNX Runtime** (gateway) and **TensorFlow Lite** (native Android, on-device); **Isolation Forest** now runs in permanent **shadow** and is the cold-start/degradation fallback. `Behavior_Score` still stacks into **XGBoost** unchanged. A native **Android capture-sdk + demo app** (Kotlin) ships alongside `behavior-sdk` (web), sharing the same nonce/HMAC signing scheme, pinned by a cross-language golden vector.
 
 ---
 
@@ -92,11 +94,14 @@ Flink consumes events **asynchronously** to keep Redis warm for *subsequent* eve
 - Emits a structured `BehaviorPayload` (`source="web_sdk"`) on submit; in continuous mode posts batches every N seconds.
 - Public API: `CogniGuard.init(config)`, `CogniGuard.attach(formEl)`, `CogniGuard.collect(): Promise<BehaviorPayload>`, `CogniGuard.startContinuous(sessionToken)`.
 
-#### Mobile App (edge feature extraction) — NFR-10
-- Captures **touch/swipe dynamics + motion-sensor data** via the device APIs and **extracts the derived feature vector on-device**; **raw coordinate/pressure/sensor time-series never leave the device.**
-- Sends the **same `BehaviorPayload` contract** with `channel="mobile"`, `source="mobile_edge"`, still nonce+HMAC signed.
-- Supports the **strong, phishing-resistant** step-up factors: biometric prompt, passkey, MPIN.
-- Degrades to normalized raw touch features if edge extraction is unavailable → server flags `degraded_mode`.
+#### Native Android App + capture-sdk (Kotlin) — NFR-10
+- `android/capture-sdk/`: `KeystrokeCapture`/`TouchCapture`/`MotionCapture` capture touch/swipe dynamics + motion-sensor data via device APIs; `edge/MobileFeatures` **extracts the derived feature vector on-device** (mirrors `behavior-sdk/src/edge.ts`'s formulas exactly) — **raw coordinate/pressure/sensor time-series never leave the device.**
+- `ml/AutoencoderTFLite` runs the on-device LSTM Autoencoder over the same `(16,9)` window via TensorFlow Lite, bundled as `assets/model.tflite` (a copy of the gateway's registered `lstm_autoencoder_tflite` artifact) — sends only the **raw** reconstruction error (`ae_recon_error`); the gateway always calibrates, same as the web path's server-side AE.
+- `integrity/Canonical.kt` + `integrity/Signer.kt` reproduce `gateway/app/services/integrity.py::canonical_metrics`/`compute_signature` byte-for-byte (pinned by the shared golden vector `gateway/tests/fixtures/golden_canonical_mobile.json`, also asserted by `behavior-sdk/src/payload.test.ts`); `fingerprint/DeviceFingerprint` + `security/RootDetection` are this platform's `is_rooted`/`is_emulator`/fingerprint sources.
+- Sends the **same `BehaviorPayload` contract** with `channel="mobile"`, `source="mobile_edge"`, still nonce+HMAC signed, via `net/CogniGuardClient` (mirrors `web-app/src/api.ts` field-for-field).
+- `android/app/` (`LoginActivity`/`TransferActivity`) is the demo IB app, parity with `web-app/src/pages/Login.tsx`/`Payment.tsx`.
+- Supports the **strong, phishing-resistant** step-up factors: biometric prompt, passkey, MPIN (native demo simplifies the step-up UI itself; the contract is the same `DecisionResponse.step_up`).
+- Degrades to the gateway's IF-shadow/fallback path if `ae_recon_error` is absent or no calibration exists yet (`ae_cold_start`) → server flags `degraded_mode` where applicable.
 
 #### Web Banking Demo (React)
 - Simulated Internet Banking: login, dashboard, "transfer" page (continuous scoring + amplifier demo), **action-sensitive flows** (add payee, change registered contact, large transfer).
@@ -155,7 +160,7 @@ Authoritative DDL is PRD §17.1; summarized here. UUID PKs; `TIMESTAMPTZ` everyw
 | `auth_challenges` | `challenge_id`, `session_id`, `decision_id`, `challenge_type` (OTP/MPIN/FINGERPRINT/PASSKEY/VOICE_READBACK), `status` (issued/passed/failed/expired), `attempts`. |
 | `cases` | fraud-ops alerts/investigations: `alert_type`, `severity`, `status` (open/investigating/**confirmed_fraud**/**false_positive**/closed), `assigned_to`. |
 | `audit_logs` | immutable: `actor_type` (system/user/analyst), `actor_id`, `action`, `entity_type`, `entity_id`, `metadata` JSONB. |
-| `model_registry` | `model_name` (xgboost_txn/isolation_forest/lstm_seq), `model_type`, `version`, `stage` (staging/production/archived), `artifact_uri` (S3), `metrics` JSONB. |
+| `model_registry` | `model_name` (xgboost_txn/isolation_forest/lstm_autoencoder/lstm_autoencoder_tflite), `model_type`, `version`, `stage` (staging/production/archived), `artifact_uri` (S3), `metrics` JSONB. |
 
 **ER cardinalities (PRD §17.4):** `users 1—N accounts/sessions/cases`; `users N—M devices` (via `user_devices.trust_score`); `users N—M beneficiaries` (via `user_beneficiaries`, carrying cooling/history); `sessions 1—N login_events/behavior_samples/transactions`; `transactions 1—1 beneficiary`; `risk_scores 1—1 decisions`; `decisions 1—N auth_challenges`; `transactions 0..1—N cases`; every state change writes `1—N audit_logs`; `model_registry` stamps `risk_scores.model_version`.
 
@@ -170,7 +175,10 @@ user:{user_id}:velocity:1h      STRING counter, TTL 1h
 user:{user_id}:velocity:24h     STRING counter, TTL 24h
 user:{user_id}:amount_sum:24h   STRING running sum, TTL 24h
 device:{device_id}:trust        STRING 0..100
-behavior:{user_id}:baseline     STRING serialized biometric profile for the IF behavior anomaly check
+behavior:{user_id}:baseline     STRING serialized biometric profile for the IF shadow/fallback anomaly check
+behavior:{session_id}:seq       LIST   capped rolling (16,9) AE window, web only (mobile computes recon_error on-device); TTL refreshed on push
+behavior:{user_id}:ae_calib     STRING per-user CalibrationParams JSON {scale,threshold,temperature}, promoted after a clean cooling window (anti-poisoning)
+calib:ae:population             STRING population-fallback CalibrationParams JSON, seeded by training/train_lstm_autoencoder.py + scripts/seed_calibration.py
 # operational (not features):
 nonce:{nonce}                   single-use {user_id,seq} (TTL); DEL on consume (anti-replay)
 jwt:denylist:{jwt_id}           1 (TTL≈token life) — terminated/hijacked session revocation
@@ -190,7 +198,7 @@ soc-feed                        pub/sub channel — dashboard
 - `transaction_events` `user_id` → `{ transaction_id, amount, beneficiary_id, transfer_type, is_new_payee, ts }`
 
 **Output**
-- `risk_scores` → `{ entity_type, entity_id, behavior_score, device_score, transaction_score, final_risk_score, risk_band, model_version, ts }`
+- `risk_scores` → `{ entity_type, entity_id, behavior_score, behavior_score_source, device_score, transaction_score, final_risk_score, risk_band, model_version, ts }`
 - `decisions` → `{ entity_type, entity_id, action, required_factors, reason_codes, ts }`
 
 ---
@@ -219,32 +227,41 @@ soc-feed                        pub/sub channel — dashboard
   // --- mobile_edge: pre-computed features only (raw streams stay on device) ---
   "derived_features": { "swipe_velocity_norm": 1.4, "swipe_angle_dev": 0.2,
                         "touch_pressure_avg": 0.5, "acceleration_variance": 0.03 },
+  // --- mobile_edge: on-device LSTM Autoencoder output (Android capture-sdk, NFR-10) ---
+  "ae_recon_error": 0.0731,                // raw reconstruction error; gateway calibrates, never the device
+  "ae_model_version": "lstm_autoencoder@2026-06-20",
   "context": { "submitted_at": "ISO8601", "page": "login",
                "pre_txn_dwell_ms": 0, "session_age_s": 0, "correction_rate": 0.0 }
 }
 ```
-> The gateway accepts **either** raw modality blocks (web) **or** `derived_features` (mobile) via the same contract; missing modalities are handled gracefully. Never the key character of a secret field.
+> The gateway accepts **either** raw modality blocks (web) **or** `derived_features` (mobile) via the same contract; missing modalities are handled gracefully. Never the key character of a secret field. `ae_recon_error`/`ae_model_version` are part of the signed `canonical(metrics)` set (mobile only — web's server-side AE never needs them on the wire); `Canonical.kt`/`Signer.kt` (Android) and `payload.ts` (web) must format them byte-identically to `gateway/app/services/integrity.py::canonical_metrics`, pinned by the shared golden vector in `gateway/tests/fixtures/golden_canonical_mobile.json`.
 
 ### 5.2 FeatureBundle (read from Redis + inline payload, internal model input)
 ```jsonc
 {
   "behavior":  { "typing_speed":, "key_latency_avg":, "typing_rhythm_std":, "hold_time_avg":,
                  "swipe_velocity_norm":, "swipe_angle_dev":, "touch_pressure_avg":,
-                 "acceleration_variance":, "mouse_velocity_mean": },   // → Isolation Forest
+                 "acceleration_variance":, "mouse_velocity_mean": },   // → LSTM Autoencoder / Isolation Forest
   "device":    { "device_trust":, "is_new_device":bool, "is_rooted":bool },
   "network":   { "geo_distance_km":, "geo_change":bool, "vpn":bool, "asn": },
   "txn":       { "amount":, "amount_zscore":, "velocity_1h":, "velocity_24h":,
                  "amount_sum_24h":, "is_new_payee":bool, "beneficiary_risk":,
                  "odd_time":bool, "high_velocity":bool },
   "context":   { "hour":, "dow":, "session_age_s":, "pre_txn_dwell_ms":,
-                 "correction_rate":, "behavior_score": }                // IF output, fed to XGBoost
+                 "correction_rate":, "behavior_score": },               // Behavior_Score, fed to XGBoost
+  "cold_start": false,           // no per-user profile/baseline yet → bias to verify
+  // --- AE plumbing (Implementation.md Phase 14/15) ---
+  "behavior_sequence": [[...9 floats...], ...],   // (16,9) rolling window, web only; null for mobile
+  "behavior_sequence_mask": [false, true, ...],   // True = real row, False = left-pad; web only
+  "ae_recon_error": 0.0731,      // mobile-only, device-computed; web computes this itself from behavior_sequence
+  "ae_cold_start": false         // too few real rows, or no AE calibration yet → routes to IF shadow score
 }
 ```
 
 ### 5.3 ScoreResult (scoring service, internal)
 ```jsonc
 {
-  "behavior_score": 0.12,        // Isolation Forest [0,1]  ⇒ Behavior_Score (stacked into XGBoost)
+  "behavior_score": 0.12,        // Behavior_Score [0,1] -- AE-primary, IF-shadow-fallback (stacked into XGBoost)
   "device_score": 0.00,
   "transaction_score": 0.27,     // XGBoost fraud probability [0,1] (stacked single score)
   "final_risk_score": 27.0,      // round(100 * final_p)  OR weighted-ensemble alternative
@@ -253,7 +270,11 @@ soc-feed                        pub/sub channel — dashboard
   "amplifiers": [],              // fired Dynamic Risk Amplifiers (txn path)
   "reason_codes": [ {"code":"GEO_CHANGE","detail":"new city, plausible travel","sigma":1.1} ],
   "degraded_mode": false,
-  "latency_ms": 41
+  "latency_ms": 41,
+  // --- AE-primary provenance (Implementation.md Phase 15) ---
+  "behavior_score_source": "ae",   // "ae" | "if" | "fallback" -- which model actually drove behavior_score
+  "if_shadow_score": 0.09,         // Isolation Forest's score, always computed, logged even when AE is primary
+  "ae_recon_error": 0.0731         // the AE's raw (uncalibrated) reconstruction error, when AE was primary
 }
 ```
 
@@ -376,12 +397,32 @@ consent withdrawn → consent_status=WITHDRAWN
 
 ### 7.1 PRIMARY — Stacked single score (recommended, PRD §9.1)
 ```
-Behavior_Score = IsolationForest(behavioral_vector)        # [0,1]   (Model 2, anomaly safety net)
-final_p        = XGBoost(context, txn, device, Behavior_Score)  # [0,1] (Model 1, primary)
-final_risk     = round(100 * final_p)                       # 0..100  → one number, one threshold
+                  ┌─────────────────────────────────────────────┐
+                  │     Behavior_Score (AE-primary, IF-shadow)    │
+behavioral_vector │                                                │
+   (16,9 window) ─┼─► LSTM Autoencoder ──► recon_error ──┐         │
+                  │   (primary, when not    [raw, ≥0]    │         │
+                  │    ae_cold_start)                     ▼         │
+                  │                              Calibration Layer  │──► Behavior_Score [0,1]
+                  │   Isolation Forest ──► decision_function ──┘   │     (whichever source won)
+                  │   (always computed,    [raw, sign-flipped       │
+                  │    shadow + fallback)    before calibrating]    │
+                  └─────────────────────────────────────────────┘
+final_p    = XGBoost(context, txn, device, Behavior_Score)   # [0,1] (Model 1, primary)
+final_risk = round(100 * final_p)                              # 0..100  → one number, one threshold
 ```
-- **Isolation Forest** (unsupervised, no labels): catches **novel fraud** and **covers cold-start**; behavioral-biometric anomaly over typing/touch/swipe/session vs. baseline. Seeded by CMU (typing) + HMOG (touch) global priors; per-user baseline supersedes after ≥10 clean sessions.
-- **XGBoost** (supervised): the **final fraud probability the Decision Engine acts on**, consuming `Behavior_Score` as one feature. Trained on labeled history (analyst-confirmed via the feedback loop) joined with historical feature snapshots so training features match online features.
+- **LSTM Autoencoder** (unsupervised, trained on genuine sequences only): the **primary** behavioral signal. Masked-MSE reconstruction error over a rolling `(16, 9)` window of the same 9-dim behavioral vector IF uses — see §7.1a. Served via ONNX Runtime in the gateway (web) and TensorFlow Lite on-device (Android, NFR-10 — only the raw `ae_recon_error` crosses the wire, never raw biometric streams).
+- **Isolation Forest** (unsupervised, no labels): **always computed**, but only **acts** on cold-start (no AE calibration yet for that user/population) or AE failure/timeout (`degraded_mode`) — otherwise it runs purely in **shadow**, logged as `if_shadow_score` for drift/comparison, never driving the decision. Seeded by CMU (typing) + HMOG (touch) global priors; per-user baseline supersedes after ≥10 clean sessions.
+- **Calibration layer** maps either model's raw anomaly signal onto the same `Behavior_Score` polarity (0=normal, 1=anomalous) via a robust-z → logistic transform — see §7.1a. This is what lets XGBoost treat the two interchangeably.
+- **XGBoost** (supervised): the **final fraud probability the Decision Engine acts on**, consuming `Behavior_Score` as one feature regardless of which model produced it. Trained on labeled history (analyst-confirmed via the feedback loop) joined with historical feature snapshots so training features match online features.
+
+### 7.1a Calibration layer (Implementation.md Phase 13)
+Both models' raw outputs are on different, model-specific scales (AE: unbounded reconstruction error, higher = more anomalous; IF: `decision_function`, lower = more anomalous) — the calibration layer normalizes both onto `Behavior_Score ∈ [0,1]`:
+```
+z   = (raw − threshold) / scale × temperature      # raw is recon_error (AE) or −decision_function (IF, sign-flipped)
+Behavior_Score = clamp(sigmoid(z), 0, 1)            # anchored so raw == threshold ⇒ 0.5 (neutral midpoint)
+```
+`scale`/`threshold`/`temperature` (`CalibrationParams`) are fit offline (`training/train_lstm_autoencoder.py`, robust-z over a held-out genuine validation split: `threshold` = a high percentile of genuine error, `scale` = median absolute deviation) and resolved at inference time **per-user** (`behavior:{user_id}:ae_calib`) → **population** (`calib:ae:population`) → a neutral default, never raising even on a fresh install with no calibration seeded yet.
 
 ### 7.2 ALTERNATIVE — Weighted ensemble (rebalanced, graph removed, PRD §9.2)
 ```
@@ -402,14 +443,15 @@ Triggers → amplifiers: New Payee `is_new_payee` (new-benef high-value ×1.5) �
 Deterministic feature-delta / top-deviation explainer (**not** SHAP/LIME on the hot path): for each model-input feature compute the standardized deviation from baseline, pick the top drivers, map to plain-English reason codes, and append fired amplifiers/triggers. Runs inside the latency budget.
 
 ### 7.6 Cold-start & degradation
-- **Cold-start** (no per-user profile/labels): redistribute biometric weight to context features, lean on IF global prior + decision-layer rules, **bias to `verify`, never `block`**.
-- **Degradation (NFR-4):** XGBoost unavailable → IF + rules; Redis degraded → bias to `verify`; scoring timeout → safe action per policy; tag `degraded_mode` in response + logs.
+- **Cold-start** (no per-user profile/labels, or no AE calibration yet): redistribute biometric weight to context features, lean on the IF shadow score (`ae_cold_start=true` routes `Behavior_Score` to IF) + decision-layer rules, **bias to `verify`, never `block`**.
+- **AE failure/timeout:** falls back to the IF shadow score the same way cold-start does, tagged `degraded_mode`. **Degradation (NFR-4) more broadly:** XGBoost unavailable → IF/AE `Behavior_Score` + rules; Redis degraded → bias to `verify`; scoring timeout → safe action per policy; tag `degraded_mode` in response + logs.
 
 ### 7.7 Models, datasets & training (PRD §6.6, §8, §14)
 - **`INB_REQ_LOG`** (Internet Banking request log) → session/navigation features (`session_duration`, `pre_txn_dwell`, `nav_entropy`, `request_velocity`, **`beneficiary_add_to_pay_gap`** — primary coercion signal, `odd_time`) → IF + XGBoost. Replaced day-one by live `login_events`/`behavior_events`.
 - **`TXN_HISTORY_UPI_FIN`** (UPI history) → `amount_zscore`, `velocity_1h/24h`, `amount_sum_24h`, `is_new_payee`, `beneficiary_risk`, odd-time norms → XGBoost supervised target (label column or heuristic `is_new_payee ∧ amount_z>2 ∧ odd_time`). Replaced by live `transaction_events` → Flink → Redis.
-- **CMU Keystroke** → global IF prior for typing (`typing_speed`, `key_latency_avg`, `typing_rhythm_std`, `hold_time_avg`); validates **G6 (EER ≤ 10%)**.
-- **HMOG** → global IF prior for touch/motion (`swipe_velocity_norm`, `swipe_angle_dev`, `touch_pressure_avg`, `acceleration_variance`).
+- **CMU Keystroke** → global IF prior for typing (`typing_speed`, `key_latency_avg`, `typing_rhythm_std`, `hold_time_avg`); also pooled into the AE's training windows (`sequence_frames()`, ordered per-subject `(16,9)` windows, touch/motion dims zero-filled); validates **G6 (EER ≤ 10%)**.
+- **HMOG** → global IF prior for touch/motion (`swipe_velocity_norm`, `swipe_angle_dev`, `touch_pressure_avg`, `acceleration_variance`); same dual role feeding the AE's training windows (typing dims zero-filled).
+- **LSTM Autoencoder training** (`training/train_lstm_autoencoder.py`, Implementation.md Phase 16): trains on pooled genuine CMU+HMOG `(16,9)` windows only (masked-MSE, per-feature normalized), exports both serving artifacts — ONNX (`lstm_autoencoder`, gateway) and TFLite (`lstm_autoencoder_tflite`, Android) — verifies export parity within tolerance, fits `CalibrationParams` from the held-out validation split's reconstruction-error distribution, and seeds `calib:ae:population` in Redis.
 - **Synthetic generation is for fraud scenarios only** (replay, hijack, UPI scam, brute-force, poisoning) — never to fabricate genuine baselines. Both bank datasets archive to S3 as the initial training-lake partition.
 
 ---
@@ -437,7 +479,7 @@ Assurance ordering: knowledge (password/PIN — phishable) < possession (OTP/pus
 Fired when txn risk crosses threshold or an amplifier fires: **Cooling Period** (hold large transfers to freshly added payees) · **Reconfirmation** (out-of-band on a separately verified channel) · **Manual Amount Entry** (type the amount — deliberate pause + fresh high-value behavioral sample) · **Coercion Check** (plain-language "is someone instructing you right now?"). This is how CogniGuard catches *"genuine behavior, dangerous intent."*
 
 ### 8.4 Orchestration (PRD §10.4)
-`event → gateway authn+integrity → read Redis features → IF Behavior_Score → XGBoost fraud_p → band? → allow / verify(light) / verify(strong) / block → {action stakes / amplifiers?} → txn-fraud layer → emit decision + reason_codes → persist PG + emit risk_scores/decisions → dashboard.`
+`event → gateway authn+integrity → read Redis features → Behavior_Score (AE-primary, IF-shadow-fallback) → XGBoost fraud_p → band? → allow / verify(light) / verify(strong) / block → {action stakes / amplifiers?} → txn-fraud layer → emit decision + reason_codes → persist PG + emit risk_scores/decisions → dashboard.`
 
 ---
 
@@ -454,33 +496,35 @@ cogniguard/
 │   │   ├── main.py · config.py · db.py · redis_client.py · kafka_client.py · s3_client.py · deps.py
 │   │   ├── models/                   # SQLAlchemy (16 OLTP tables, §4)
 │   │   ├── schemas/                  # Pydantic v2 (BehaviorPayload, FeatureBundle, ScoreResult, DecisionResponse, ...)
-│   │   ├── routers/                  # auth, payment, behavior, risk, admin, ws  (THIN)
+│   │   ├── routers/                  # auth, payment, behavior, risk, admin, mobile, ws  (THIN)
 │   │   ├── services/
-│   │   │   ├── integrity.py          # nonce/HMAC/seq/skew (anti-replay)
-│   │   │   ├── feature_reader.py     # read online features from Redis (ONLY)
+│   │   │   ├── integrity.py          # nonce/HMAC/seq/skew (anti-replay); canonical_metrics signs ae_recon_error/ae_model_version too
+│   │   │   ├── feature_reader.py     # read online features from Redis (ONLY); AE sequence buffer + ae_cold_start
 │   │   │   ├── decision_engine.py    # band + risk×action matrix + adaptive auth
 │   │   │   ├── adaptive_auth.py      # assurance-ordered factor selection
 │   │   │   ├── txn_fraud_layer.py    # cooling / reconfirm / manual-amount / coercion
 │   │   │   ├── hardening.py          # Track A: IP/device counters & lockout
 │   │   │   ├── consent.py            # consent gating + RTBF cascade
+│   │   │   ├── mobile_distribution.py # resolves the production lstm_autoencoder_tflite version + per-user calibration
 │   │   │   ├── audit.py · case_mgmt.py · broadcaster.py
 │   │   ├── scoring/
-│   │   │   ├── isolation_forest.py · xgboost_model.py · stack.py
+│   │   │   ├── isolation_forest.py · autoencoder.py · calibration.py · xgboost_model.py · stack.py · shadow.py
 │   │   │   ├── amplifiers.py · explain.py · registry.py
 │   │   └── utils/                    # geo, fingerprint, security helpers
-│   ├── scripts/                      # seed_demo.py, generate_fraud_scenarios.py, load_datasets.py
+│   ├── scripts/                      # seed_demo.py, generate_fraud_scenarios.py, load_datasets.py, seed_calibration.py
 │   └── tests/                        # pytest
 │
 ├── flink-jobs/                       # PyFlink feature engine (Kafka → Redis + S3 mirror)
 │   └── feature_engine.py
 ├── training/                         # offline training + registry promotion + drift
-│   ├── train_xgboost.py · train_isolation_forest.py · drift_monitor.py
-│   └── datasets/                     # CMU/HMOG/INB_REQ_LOG/TXN_HISTORY_UPI_FIN adapters (fetched per license)
+│   ├── train_xgboost.py · train_isolation_forest.py · train_lstm_autoencoder.py · drift_monitor.py
+│   └── datasets/                     # CMU/HMOG/INB_REQ_LOG/TXN_HISTORY_UPI_FIN adapters (fetched per license); sequence_frames() for AE windows
 │
 ├── behavior-sdk/                     # shared TS capture lib (events, fingerprint, edge-extract, payload, index)
 ├── web-app/                          # Internet Banking demo (React+Vite) — pages/, components/, api.ts
 ├── bank-dashboard/                   # Fraud-ops/SOC dashboard (React+Vite+Recharts) — pages/, components/, ws.ts, api.ts
-└── models/                           # local mirror of S3 model artifacts
+├── android/                          # native Android capture-sdk/ (Kotlin) + demo IB app/, parity with web-app/behavior-sdk
+└── models/                           # local mirror of S3 model artifacts (joblib / xgb / onnx / tflite)
 ```
 
 ---
@@ -516,7 +560,7 @@ cogniguard/
 - **Two-track lockout:** brute-force throttling targets the **offending IP/device, never the account** (no account-lockout DoS); sensitive actions ringfenced.
 - **Assurance-ordered MFA:** high-risk / high-stakes require a **phishing-resistant** factor (device biometric / passkey), not just SMS-OTP; pick the lightest factor that clears the risk.
 - **Out-of-band verification:** suspicious activity triggers a "was this you?" confirmation on a separately verified channel.
-- **Edge data minimization (NFR-10):** mobile transmits only derived features; raw touch/sensor series never leave the device.
+- **Edge data minimization (NFR-10):** mobile transmits only derived features and the on-device AE's raw reconstruction error; raw touch/sensor series and the `(16,9)` behavioral window itself never leave the device (Android's `capture-sdk` runs the LSTM Autoencoder locally via TensorFlow Lite).
 - **Anti model-poisoning:** step-up-passed telemetry quarantined; promoted only after a clean cooling window.
 - **DPDP / RBI compliance (NFR-9):** consent logging, minor exclusion, retention expiry, ≤24h right-to-be-forgotten cascading hard-delete; in-region residency (NFR-8); anonymized `risk_scores`/`decisions`/`audit_logs` retained for RBI DPSC audit.
 - **Input validation:** Pydantic v2 on every endpoint and topic payload; parameterized SQL via SQLAlchemy 2.x.
@@ -526,10 +570,10 @@ cogniguard/
 
 ## 12. Model Governance & Observability
 
-- **Model registry:** every model (`xgboost_txn`, `isolation_forest`, `lstm_seq` in Phase 2) registered with version, type, stage (`staging|production|archived`), S3 artifact URI, metrics. Scoring resolves `production` at startup; stamps `model_version` on every `risk_scores` row. A decision is reproducible from `(model_version, policy_version, feature_set)`.
-- **Champion/Challenger:** new models score in **shadow** against live traffic (scoring without acting); promoted only when they beat the incumbent on fraud-value-caught at the bounded FP/step-up budget. Any production model rolls back to a prior registry version without redeploy.
+- **Model registry:** every model (`xgboost_txn`, `isolation_forest`, `lstm_autoencoder` (ONNX), `lstm_autoencoder_tflite` (Android)) registered with version, type, stage (`staging|production|archived`), S3 artifact URI, metrics. Scoring resolves `production` at startup; stamps `model_version` on every `risk_scores` row. A decision is reproducible from `(model_version, policy_version, feature_set)`. The two AE rows share one version stamp (`lstm_autoencoder@{date}`) and are always trained/registered together.
+- **Champion/Challenger:** new models score in **shadow** against live traffic (scoring without acting); promoted only when they beat the incumbent on fraud-value-caught at the bounded FP/step-up budget. The Isolation Forest shadow score (`if_shadow_score`) is a *permanent* shadow once the AE is primary, not just a pre-promotion phase — it's also the cold-start/degradation fallback. Any production model rolls back to a prior registry version without redeploy.
 - **Drift monitoring:** feature drift (PSI/KS), score drift, outcome drift (precision/recall on confirmed labels) → alert + on-demand retrain.
-- **Feedback loop:** analyst `cases.status` of `confirmed_fraud` / `false_positive` flow to S3 as labeled training data; weekly XGBoost retrain consumes them; IF baselines update incrementally from LOW-risk, no-step-up sessions only; step-up telemetry quarantined.
+- **Feedback loop:** analyst `cases.status` of `confirmed_fraud` / `false_positive` flow to S3 as labeled training data; weekly XGBoost retrain consumes them; AE/IF baselines update incrementally from LOW-risk, no-step-up sessions only; step-up telemetry quarantined.
 - **Health:** `GET /health` (DB + Redis + Kafka + Flink + S3 + model registry status, incl. active policy id and production model versions).
 - **Metrics:** decision latency histograms (p95 vs 300/500 ms budgets), band distribution, amplifier/trigger fire rates, IP/device lockouts, quarantine counts, throughput (events/sec), RED/USE per stage — surfaced on the dashboard. `degraded_mode` propagated in responses & logs.
 
@@ -541,10 +585,12 @@ cogniguard/
 |----------------------|-----------|
 | Streaming pipeline (Kafka → Flink → Redis) + Redis-only inference | §5, §11, §12, NFR-1/2 |
 | API Gateway (authn + integrity + produce + sync score/decide) | §5.1, NFR-5 |
-| behavior-sdk + mobile edge feature extraction + `source` field | §6.1, NFR-10 |
-| Nonce + HMAC integrity binding | §6 collection rule, NFR-5, §16.2 (replay/RAT) |
-| Isolation Forest (anomaly, cold-start, novel fraud) | §8.2, G6 |
-| XGBoost primary (stacked, drives decision) | §8.1, §9.1, G1 |
+| behavior-sdk (web) + native Android capture-sdk + mobile edge feature extraction + `source` field | §6.1, NFR-10 |
+| Nonce + HMAC integrity binding (web + Android, shared golden vector) | §6 collection rule, NFR-5, §16.2 (replay/RAT) |
+| LSTM Autoencoder (AE-primary behavioral signal) + calibration layer | §8.2, G6 |
+| Isolation Forest (shadow signal; cold-start + AE-degradation fallback) | §8.2, G6, NFR-4 |
+| On-device TFLite autoencoder inference (Android, NFR-10 data minimization) | §6.1, NFR-10 |
+| XGBoost primary (stacked on Behavior_Score, drives decision) | §8.1, §9.1, G1 |
 | Weighted-ensemble alternative (60/25/15) | §9.2 |
 | Risk bands low/medium/high/very_high | §9.3 |
 | Dynamic Risk Amplifiers (multiplicative) | §10.3 (APP/coercion) |
@@ -560,7 +606,7 @@ cogniguard/
 | Datasets (INB_REQ_LOG / TXN_HISTORY_UPI_FIN / CMU / HMOG) + synthetic *fraud* generator | §6.6, §7 |
 | Bank Dashboard + case actions + WS feed | §3, §5.1 |
 | Consent + RTBF + residency + audit | NFR-8, NFR-9, §13 |
-| Rule-based / IF fallback (`degraded_mode`) | NFR-4 |
+| Rule-based / IF-shadow fallback on AE cold-start or failure (`degraded_mode`) | NFR-4 |
 | Latency budgets (login 300ms / payment 500ms) | NFR-1, §12 |
 | Docker Compose topology | NFR-12 |
 | **No graph database / mule-network model** | §2.2, §4, §11, §15 (out of scope, all phases) |

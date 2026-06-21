@@ -3,14 +3,19 @@
 ## Project: **CogniGuard** — Real-Time Risk Orchestration Platform for Digital Banking
 
 **Document type:** End-to-end product & engineering specification (build-ready)
-**Version:** 2.0 (orchestration rewrite)
+**Version:** 3.0 (AE-primary + native Android)
 **Status:** Finalized for implementation
-**Date:** 2026-06-16
+**Date:** 2026-06-21
 **Authoritative scope note:** This version **removes** the graph database and
 graph-based mule-network detection entirely. They are out of scope for **all** phases.
-The model stack is **XGBoost**
-(primary, supervised) and **Isolation Forest** (unsupervised anomaly safety net) for
-the MVP, with an **LSTM/Transformer** sequence model as a **Phase 2** enhancement only.
+The behavioral model stack is **AE-primary / IF-shadow-fallback**: an **LSTM
+Autoencoder** (reconstruction error → calibration layer → `Behavior_Score`) is the
+primary behavioral signal — served via ONNX Runtime in the gateway and **TensorFlow
+Lite on-device on a native Android app**; **Isolation Forest** (unsupervised) runs in
+permanent shadow and is the cold-start/degraded-mode fallback. `Behavior_Score` stacks
+into **XGBoost** (primary, supervised) as before. A dedicated Transformer sequence
+model remains a **Phase 2** enhancement only (the original "LSTM is Phase 2" framing
+shipped ahead of schedule as the AE described above — see §8).
 
 ---
 
@@ -448,10 +453,10 @@ inputs, computation window, storage location, and consuming model(s).
 | **Amount_Sum_24h** | Sum of amounts in window | txn events | 24h | Redis `user:{id}:amount_sum:24h` | XGBoost |
 | **Beneficiary_Risk** | New payee? cooling active? prior history? | beneficiary id, cooling, history | point | Redis `user:{id}:known_beneficiaries` (+ PG `user_beneficiaries`) | XGBoost, Decision |
 | **Is_New_Payee** | Beneficiary not in user's known set | beneficiary id, known set | point | Redis `user:{id}:known_beneficiaries` | Decision layer |
-| **Behavior_Score** | Anomaly vs. biometric baseline | typing/touch/swipe/session | session | Isolation Forest output (baseline in Redis `behavior:{id}:baseline`) | XGBoost (stacked) / Ensemble 25% |
+| **Behavior_Score** | Calibrated anomaly score vs. biometric baseline | typing/touch/swipe/session (a rolling `(16,9)` window) | session | AE-primary: LSTM Autoencoder reconstruction error → calibration layer (Redis `behavior:{id}:ae_calib` / `calib:ae:population`). Shadow/fallback: Isolation Forest output (baseline in Redis `behavior:{id}:baseline`) | XGBoost (stacked) / Ensemble 25% |
 | **Odd_Time** | Txn hour outside user's norm | txn hour, user norm | point | derived | Decision layer |
 | **High_Velocity** | Velocity over threshold (boolean) | Velocity_1h/24h | point | derived | Decision layer |
-| **Sequence_Risk** | LSTM over last N txns (**Phase 2**) | recent txn history | rolling | model output | XGBoost (Phase 2) |
+| **Sequence_Risk** | LSTM/Transformer over last N **transactions** (**Phase 2** — distinct from the shipped behavioral autoencoder, which sequences biometric events, not transaction history) | recent txn history | rolling | model output | XGBoost (Phase 2) |
 
 **Rules the engine must respect:**
 - Online features are read **only from Redis** at inference. The PostgreSQL tables (§11)
@@ -465,15 +470,17 @@ inputs, computation window, storage location, and consuming model(s).
 
 ```
 RAW SIGNALS                  DERIVED FEATURES                  MODEL
-typing_speed,   \
-typing_rhythm,   >─────────► Behavior baseline deviation ────► Isolation Forest
-touch, swipe    /                                              ⇒ Behavior_Score
-                                                                     │
-device fingerprint,\                                                 │ (fed in as
-is_rooted           >──────► Device_Trust, Is_New_Device ──┐         │  one feature)
-                                                           │         ▼
-amount, ts,        \         Amount_zscore, Velocity_1h/24h│   ┌───────────────┐
-beneficiary_id,     >──────► Amount_Sum_24h, Geo_Distance, ├──►│   XGBoost      │
+typing_speed,   \                                       ┌─► LSTM Autoencoder (primary)─┐
+typing_rhythm,   >─────────► (16,9) behavioral window ──┤                              ├─► Calibration Layer
+touch, swipe    /                                       └─► Isolation Forest (shadow) ─┘        │
+                                                           (cold-start/degradation fallback)      ▼
+                                                                                            Behavior_Score
+                                                                                                   │
+device fingerprint,\                                                 │ (fed in as                │
+is_rooted           >──────► Device_Trust, Is_New_Device ──┐         │  one feature)              │
+                                                           │         ▼                            │
+amount, ts,        \         Amount_zscore, Velocity_1h/24h│   ┌───────────────┐                  │
+beneficiary_id,     >──────► Amount_Sum_24h, Geo_Distance, ├──►│   XGBoost      │◄─────────────────┘
 ip/geo, is_new_payee/        Beneficiary_Risk              │   │  (PRIMARY)     │
                                           + Behavior_Score ┘   │ ⇒ fraud prob.  │
                                                               └──────┬─────────┘
@@ -481,16 +488,16 @@ ip/geo, is_new_payee/        Beneficiary_Risk              │   │  (PRIMARY) 
                               risk bands ► Decision Engine ► Allow / Verify / Block
 ```
 
-**Stacking (recommended):** the Isolation Forest `Behavior_Score` is fed in as **one
-input feature** to XGBoost. XGBoost emits a **single fraud probability** → one threshold
-to tune (see §8, §9). Decision-layer booleans are computed alongside and routed to the
-transaction-fraud layer.
+**Stacking (recommended):** `Behavior_Score` — AE-primary, Isolation-Forest-shadow-and-
+-fallback — is fed in as **one input feature** to XGBoost. XGBoost emits a **single
+fraud probability** → one threshold to tune (see §8, §9). Decision-layer booleans are
+computed alongside and routed to the transaction-fraud layer.
 
 ---
 
 ## 8. Machine Learning Models
 
-Three models, of which **two are MVP** and **one is Phase 2**. For each: inputs, output,
+Four models, of which **three are MVP** and **one is Phase 2**. For each: inputs, output,
 training-data source, retraining cadence, and cold-start fallback.
 
 ### 8.1 Model 1 — XGBoost (PRIMARY, supervised) — *drives the final decision*
@@ -499,8 +506,9 @@ training-data source, retraining cadence, and cold-start fallback.
   overall risk scoring. **This model produces the final fraud probability that the
   Decision Engine acts on.**
 - **Inputs:** Amount, Amount_zscore, Device_Trust, Is_New_Device, Geo_Distance,
-  Velocity_1h/24h, Amount_Sum_24h, Beneficiary_Risk, and **Behavior_Score (from Model 2,
-  stacked)**. (Phase 2 adds Sequence_Risk from Model 3.)
+  Velocity_1h/24h, Amount_Sum_24h, Beneficiary_Risk, and **`Behavior_Score`** — stacked
+  in as one feature, regardless of whether Model 2 (AE) or Model 3 (IF) produced it.
+  (Phase 2 adds Sequence_Risk from Model 4.)
 - **Output:** calibrated **fraud probability** in [0,1] → scaled to 0–100 risk score.
 - **Training data:** labeled historical transactions/logins from S3 (analyst-confirmed
   fraud / false-positive labels via the §14 feedback loop), joined with historical
@@ -508,19 +516,47 @@ training-data source, retraining cadence, and cold-start fallback.
 - **Retraining cadence:** scheduled **weekly** retrain + **on-demand** retrain when drift
   monitors fire; champion/challenger before promotion (§14).
 - **Cold-start fallback:** before enough labels accumulate, XGBoost runs with a
-  conservative threshold and **leans on Model 2 (Isolation Forest)** plus the
+  conservative threshold and **leans on `Behavior_Score`** (Model 2/3) plus the
   decision-layer rules; for a brand-new user with no profile, biometric weight is
   redistributed to context features and decisions **bias to `verify`, never `block`**.
 
-### 8.2 Model 2 — Isolation Forest (ANOMALY SAFETY NET, unsupervised)
+### 8.2 Model 2 — LSTM Autoencoder (PRIMARY behavioral signal, unsupervised)
 
-- **Role:** unsupervised anomaly detection — **needs no labels**. It catches **novel
-  fraud** (patterns no label has yet described) and **covers the cold-start period**
-  before supervised labels accumulate. It is also the **behavioral-biometrics anomaly**
-  detector over typing rhythm, touch dynamics, swipe angle, and session duration.
-- **Inputs:** behavioral feature vector (typing/touch/swipe/session) vs. the user's
-  stored biometric baseline; plus transaction/context features for generic novelty.
-- **Output:** **anomaly score** in [0,1] → exposed as `Behavior_Score`.
+- **Role:** the **primary** source of `Behavior_Score`. An unsupervised sequence
+  autoencoder — trained **only on genuine sessions** — that reconstructs a rolling
+  `(16, 9)` window of the same 9-dim behavioral vector (typing rhythm, touch dynamics,
+  swipe angle, session duration) Model 3 uses; a high **reconstruction error** means the
+  live window doesn't look like the user's genuine behavior.
+- **Architecture:** `Input(16,9) → Masking → LSTM(32)→LSTM(16) → RepeatVector →
+  LSTM(16,seq)→LSTM(32,seq) → TimeDistributed(Dense(9))`, masked-MSE loss.
+- **Serving:** ONNX Runtime in the gateway (web sessions; assembles the rolling window
+  server-side from the Redis-backed sequence buffer) and **TensorFlow Lite on-device on
+  the native Android app** (NFR-10 — only the raw reconstruction error crosses the wire,
+  never the window itself).
+- **Output:** raw reconstruction error (≥0, unbounded) → the shared **calibration
+  layer** (robust-z → logistic, anchored to a fitted threshold/scale) → `Behavior_Score`
+  in [0,1], same polarity as Model 3's calibrated output.
+- **Training data:** pooled genuine CMU (typing) + HMOG (touch/motion) sequences,
+  windowed per-subject; never trained on step-up-passed (quarantined) telemetry.
+- **Retraining cadence:** offline, on-demand (`training/train_lstm_autoencoder.py`);
+  registers both the ONNX and TFLite artifacts together under one version stamp.
+- **Cold-start fallback:** fewer than `MIN_SEQ` real rows in the rolling window, or no
+  calibration available yet for that user/population, routes `Behavior_Score` to
+  **Model 3 (Isolation Forest)** instead — never an outright `block`.
+
+### 8.3 Model 3 — Isolation Forest (SHADOW signal; cold-start/degradation fallback, unsupervised)
+
+- **Role:** unsupervised anomaly detection — **needs no labels**. Runs on **every**
+  event regardless of which source is primary: while Model 2 has a usable calibration,
+  Isolation Forest's score is computed and logged (`if_shadow_score`) for drift
+  comparison but never acted on; it **becomes** the live `Behavior_Score` source on
+  AE cold-start or AE failure/timeout (`degraded_mode`). It also catches **novel
+  fraud** patterns no label has yet described.
+- **Inputs:** the same behavioral feature vector (typing/touch/swipe/session) vs. the
+  user's stored biometric baseline; plus transaction/context features for generic
+  novelty.
+- **Output:** **anomaly score** (`decision_function`, sign-flipped) → through the same
+  calibration layer as Model 2 → `Behavior_Score` in [0,1].
 - **Training data:** the user's enrollment + accepted (non-quarantined) behavior samples
   (per user / per channel), plus reference behavioral datasets for the global prior.
 - **Retraining cadence:** per-user incremental update from LOW-risk, no-step-up sessions;
@@ -530,16 +566,18 @@ training-data source, retraining cadence, and cold-start fallback.
   `verify`, never `block`, and seeds a fresh baseline.
 
 > **Anti-poisoning (preserved from prior design):** telemetry from any session that
-> required a step-up to pass is **never** fed straight into the baseline. It is held in a
-> quarantine store and promoted only after a clean cooling window (no fraud complaint,
-> chargeback, anomalous device/geo change, or subsequent high-risk event). See §14.
+> required a step-up to pass is **never** fed straight into the baseline or into AE/IF
+> training. It is held in a quarantine store and promoted only after a clean cooling
+> window (no fraud complaint, chargeback, anomalous device/geo change, or subsequent
+> high-risk event). See §14.
 
-### 8.3 Model 3 — LSTM / Transformer (PHASE 2 ONLY, sequence model)
+### 8.4 Model 4 — LSTM / Transformer (PHASE 2 ONLY, transaction-sequence model)
 
 - **Role (later enhancement, NOT in the MVP):** a sequence model over the user's recent
-  transaction history to catch **sudden pattern shifts** that point-in-time features
+  **transaction history** to catch **sudden pattern shifts** that point-in-time features
   miss — e.g., a sequence `1000 → 2000 → 1500 → 50000` where the last transfer breaks the
-  established rhythm.
+  established rhythm. Distinct from Model 2's behavioral autoencoder, which sequences
+  biometric events within a single session, not transactions across sessions.
 - **Inputs:** ordered sequence of the user's last *N* transactions (amount, type, payee
   novelty, inter-transaction time, etc.).
 - **Output:** **Sequence_Risk** in [0,1], fed into XGBoost as an additional feature.
@@ -550,18 +588,21 @@ training-data source, retraining cadence, and cold-start fallback.
   defaults to neutral and XGBoost relies on its other features.
 - **Status:** **Phase 2.** Not part of the production MVP.
 
-### 8.4 Recommended integration pattern — **STACKING**
+### 8.5 Recommended integration pattern — **STACKING**
 
-Run **Isolation Forest first**; feed its `Behavior_Score` in as **one input feature** to
-**XGBoost**. The result is a **single fraud probability** and therefore **one threshold
-to tune** — simpler to calibrate, monitor, and explain than two parallel scores. This is
-the recommended pattern and the default in the MVP. (An alternative weighted-ensemble
-pattern, for teams that prefer it, is described in §9.2.)
+`Behavior_Score` is **AE-primary** (Model 2) with **Isolation Forest** (Model 3) as a
+permanent shadow signal and the cold-start/degradation fallback; whichever source wins,
+it's fed in as **one input feature** to **XGBoost**. The result is a **single fraud
+probability** and therefore **one threshold to tune** — simpler to calibrate, monitor,
+and explain than two parallel scores. This is the recommended pattern and the default
+in the MVP. (An alternative weighted-ensemble pattern, for teams that prefer it, is
+described in §9.2.)
 
 | Model | MVP? | Inputs | Output | Retrain | Cold-start fallback |
 |-------|------|--------|--------|---------|---------------------|
-| XGBoost | ✅ Primary | context + txn + Behavior_Score (+ Seq P2) | fraud probability | weekly + on-drift | conservative threshold; lean on IF + rules; bias to verify |
-| Isolation Forest | ✅ Safety net | behavioral + context vectors | anomaly score | per-user incremental + weekly global | use global model; new channel → verify, seed baseline |
+| XGBoost | ✅ Primary | context + txn + Behavior_Score (+ Seq P2) | fraud probability | weekly + on-drift | conservative threshold; lean on Behavior_Score + rules; bias to verify |
+| LSTM Autoencoder | ✅ Behavioral primary | `(16,9)` behavioral window | reconstruction error → Behavior_Score | offline, on-demand | routes to Isolation Forest on cold-start/failure |
+| Isolation Forest | ✅ Behavioral shadow + fallback | behavioral + context vectors | anomaly score → Behavior_Score | per-user incremental + weekly global | use global model; new channel → verify, seed baseline |
 | LSTM/Transformer | 🔶 Phase 2 | last *N* txn sequence | sequence risk | scheduled | neutral when < N txns |
 
 ---
@@ -570,14 +611,17 @@ pattern, for teams that prefer it, is described in §9.2.)
 
 ### 9.1 PRIMARY (recommended) — Stacked single-score
 
-The **final fraud probability comes from XGBoost**, which **already consumes the
-Isolation Forest anomaly score as a feature**. There is **one number and one threshold**.
-This is the recommended production scoring approach.
+The **final fraud probability comes from XGBoost**, which **already consumes
+`Behavior_Score` as a feature** — AE-primary, Isolation-Forest-shadow-and-fallback.
+There is **one number and one threshold**. This is the recommended production scoring
+approach.
 
 ```
-Behavior_Score = IsolationForest(behavioral_vector)        # [0,1]
-final_p        = XGBoost(context, txn, Behavior_Score)     # [0,1]
-final_risk     = round(100 * final_p)                       # 0..100
+ae_score, ok    = LSTMAutoencoder(behavioral_window)        # [0,1], via calibration layer
+if_score        = IsolationForest(behavioral_vector)        # [0,1], via calibration layer — always computed
+Behavior_Score  = ae_score if ok and not ae_cold_start else if_score
+final_p         = XGBoost(context, txn, Behavior_Score)     # [0,1]
+final_risk      = round(100 * final_p)                       # 0..100
 ```
 
 ### 9.2 ALTERNATIVE — Weighted ensemble (rebalanced; graph model removed)
@@ -785,13 +829,13 @@ context load, hence the larger budget.
 | NFR-1 | **Latency** | Login decision **p95 < 300 ms**; payment decision **p95 < 500 ms** (server-side). |
 | NFR-2 | **Throughput** | ≥ 2,000 scoring events/sec/region at the latency SLOs; horizontally scalable by partitioning Kafka and sharding Redis. |
 | NFR-3 | **Availability (HA across stages)** | No single point of failure: multi-broker Kafka, Flink with checkpointing, Redis with replicas/cluster, PostgreSQL primary+replica, stateless gateway/scoring behind a load balancer. Target ≥ 99.9% for the decision path. |
-| NFR-4 | **Resilience / graceful degradation** | If XGBoost is unavailable, fall back to Isolation Forest + decision-layer rules; if Redis is degraded, bias to `verify` (never silent allow); if scoring times out, fail to the safe action per policy. |
+| NFR-4 | **Resilience / graceful degradation** | If XGBoost is unavailable, fall back to `Behavior_Score` + decision-layer rules; if the LSTM Autoencoder is unavailable/cold-start, fall back to the Isolation Forest shadow score (always computed); if Redis is degraded, bias to `verify` (never silent allow); if scoring times out, fail to the safe action per policy. |
 | NFR-5 | **Security** | TLS in transit; encryption at rest; **PII tokenization** (card/account numbers, contact details); secrets in a managed vault; least-privilege service accounts; parameterized queries; per-session single-use nonce + HMAC anti-replay on every behavioral payload. |
 | NFR-6 | **Auditability** | Every decision is immutably logged (event, score, sub-scores, reason codes, action, model version, latency, timestamp) — tamper-evident, queryable, exportable (`audit_logs`, `risk_scores`, `decisions`). |
 | NFR-7 | **Explainability** | Every `verify`/`block` decision returns human-readable **reason codes** (e.g., top deviation drivers + fired amplifiers) at near-zero latency (deterministic feature-delta explainer, not heavyweight SHAP/LIME on the hot path). |
 | NFR-8 | **Data residency** | All PII and behavioral data stored in-region; cross-border transfer disabled by configuration; per-tenant residency enforced. |
 | NFR-9 | **Compliance posture** | Controls **aligned** to RBI Master Direction on Digital Payment Security Controls and the DPDP Act, 2023 (consent logging, minor exclusion, retention expiry, right-to-be-forgotten hard-delete, full decision auditability). **Framed as engineering requirements; legal review is required and this PRD is not legal advice.** |
-| NFR-10 | **Privacy / data minimization** | Raw biometric time-series extracted on-device where possible; only derived features transmitted/stored; no raw secret content captured. |
+| NFR-10 | **Privacy / data minimization** | Raw biometric time-series extracted on-device where possible; only derived features transmitted/stored; no raw secret content captured. **Shipped win:** the native Android `capture-sdk` runs the LSTM Autoencoder itself on-device via TensorFlow Lite — the full `(16,9)` behavioral window never leaves the phone, only the single scalar `ae_recon_error` does; the gateway still performs the authoritative calibration server-side. |
 | NFR-11 | **Observability** | Structured logs, health endpoints, RED/USE metrics per stage, per-decision latency histograms, drift dashboards. |
 | NFR-12 | **Portability / extensibility** | New channels plug in via the same ingestion contract and Kafka topics; infrastructure reproducible via IaC/containers. |
 
@@ -800,10 +844,11 @@ context load, hence the larger budget.
 ## 14. Model Governance & MLOps
 
 - **Model registry (`model_registry`).** Every model (`xgboost_txn`,
-  `isolation_forest`, and `lstm_seq` in Phase 2) is registered with version, type, stage
-  (`staging | production | archived`), artifact URI (S3), and metrics. The scoring service
-  resolves the **production** version at startup and stamps `model_version` on every
-  `risk_scores` row.
+  `isolation_forest`, `lstm_autoencoder` (ONNX, gateway), `lstm_autoencoder_tflite`
+  (Android) — and a future `lstm_seq` in Phase 2) is registered with version, type,
+  stage (`staging | production | archived`), artifact URI (S3), and metrics. The
+  scoring service resolves the **production** version at startup and stamps
+  `model_version` on every `risk_scores` row.
 - **Versioning.** Models, feature definitions, and policies are versioned together so a
   decision can be reproduced exactly from `(model_version, policy_version, feature_set)`.
 - **Champion/Challenger.** New models run as **challengers** in shadow against live
@@ -827,9 +872,11 @@ context load, hence the larger budget.
 ## 15. Phased Rollout
 
 ### Phase 1 — Production MVP
-- **Stack:** **XGBoost (primary) + Isolation Forest (anomaly safety net) + Redis (feature
-  store) + Kafka (event log) + Flink (feature engine)**, with PostgreSQL (OLTP) and
-  S3 (data lake).
+- **Stack:** **XGBoost (primary) + LSTM Autoencoder (primary behavioral anomaly net,
+  calibrated reconstruction error) + Isolation Forest (permanent shadow + cold-start/
+  degraded-mode fallback) + Redis (feature store) + Kafka (event log) + Flink (feature
+  engine)**, with PostgreSQL (OLTP) and S3 (data lake). Native Android capture-sdk runs
+  the autoencoder on-device (TFLite) alongside the web/server-side ONNX path.
 - **Capabilities:** continuous login + transaction scoring; stacked single-score (or
   rebalanced 60/25/15 weighted ensemble); full decision engine + adaptive auth +
   transaction-fraud layer; explainability/reason codes; analyst dashboard + case actions;
@@ -837,11 +884,10 @@ context load, hence the larger budget.
 - **Exit criteria:** meets G1–G8 (catch rate, FP/step-up budgets, latency SLOs) on
   shadow then on a controlled live ramp.
 
-### Phase 2 — Sequence modeling & optional dedicated biometrics
-- Add the **LSTM/Transformer transaction-sequence model** (Model 3), feeding
-  `Sequence_Risk` into XGBoost to catch sudden pattern shifts.
-- **Optionally** add a dedicated **behavioral-biometrics autoencoder** to sharpen the
-  behavior anomaly signal beyond the Isolation Forest baseline.
+### Phase 2 — Sequence modeling
+- Add the **LSTM/Transformer transaction-sequence model** (Model 4), feeding
+  `Sequence_Risk` into XGBoost to catch sudden pattern shifts across a session's
+  transaction history.
 
 > **There is no Phase 3 graph / mule-network stage in this version.** Graph-based
 > detection is out of scope for all phases.
@@ -1090,7 +1136,7 @@ CREATE TABLE audit_logs (
 
 CREATE TABLE model_registry (
   model_id     UUID PRIMARY KEY,
-  model_name   TEXT,                           -- xgboost_txn | isolation_forest | lstm_seq (phase 2)
+  model_name   TEXT,                           -- xgboost_txn | isolation_forest | lstm_autoencoder | lstm_autoencoder_tflite | lstm_seq (phase 2)
   model_type   TEXT,
   version      TEXT,
   stage        TEXT,                           -- staging | production | archived

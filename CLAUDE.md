@@ -19,7 +19,7 @@ The core threat is not only **Account Takeover (ATO)** with stolen credentials, 
 
 When a detail (schema, topic, endpoint, contract name) is in those docs, use it verbatim. Do not invent alternatives.
 
-**Authoritative scope note (from PRD v2.0):** there is **no graph database and no graph-based mule-network detection** in any phase — removed by design. The model stack is **XGBoost (primary, supervised)** + **Isolation Forest (unsupervised anomaly safety net)** for the MVP, with an **LSTM/Transformer** sequence model as a **Phase 2** enhancement only.
+**Authoritative scope note (from PRD v3.0):** there is **no graph database and no graph-based mule-network detection** in any phase — removed by design. The behavioral model stack is **AE-primary / IF-shadow-fallback**: an **LSTM Autoencoder** (reconstruction error → calibration layer → `Behavior_Score`) is the primary behavioral signal; **Isolation Forest** runs in shadow alongside it and is the cold-start/degraded-mode fallback. `Behavior_Score` (whichever source produced it) feeds into **XGBoost** as one stacked input, which emits the single fraud probability the active policy thresholds. The native **Android capture SDK** runs the autoencoder **on-device** via TensorFlow Lite (`.tflite`), sending only the reconstruction error — never raw biometric streams.
 
 ---
 
@@ -33,16 +33,18 @@ When a detail (schema, topic, endpoint, contract name) is in those docs, use it 
 | Online feature store | **Redis 7** — the **only** store models read at inference time (features, counters, TTLs); also nonces, locks, pub/sub |
 | System of record (OLTP) | **PostgreSQL 16**, SQLAlchemy 2.x (typed), Alembic |
 | Data lake (offline) | **S3** (MinIO locally) — raw event archive, feature snapshots, labeled training sets, model artifacts |
-| ML — primary | **XGBoost** (supervised fraud probability; consumes the anomaly score, stacked) |
-| ML — anomaly net | **scikit-learn Isolation Forest** (unsupervised, behavioral + context) |
-| ML — Phase 2 | LSTM / Transformer sequence model (`Sequence_Risk`) — not in MVP |
-| ML tooling | numpy, pandas, scipy, joblib, model registry |
+| ML — behavioral primary | **LSTM Autoencoder** (Keras, trained offline; served via **ONNX Runtime** in the gateway and **TensorFlow Lite** on Android) — masked-MSE reconstruction error over a `(16,9)` behavioral sequence window → calibration layer → `Behavior_Score` |
+| ML — behavioral shadow/fallback | **scikit-learn Isolation Forest** (unsupervised, behavioral + context) — scores in shadow alongside the AE and is the cold-start/degraded-mode fallback |
+| ML — transaction | **XGBoost** (supervised fraud probability; consumes `Behavior_Score`, stacked) |
+| ML — Phase 2 | Transformer sequence model — not in MVP (the LSTM Autoencoder shipped in Phase 13/15/16, ahead of the original "Phase 2" framing) |
+| ML tooling | numpy, pandas, scipy, joblib, onnxruntime, tf2onnx, model registry |
 | Auth / security | PyJWT (JWT sessions), Argon2id (argon2-cffi) password hashing; HMAC-SHA256 + single-use nonce payload binding |
 | Frontend | React + TypeScript + Vite + Tailwind |
 | Dashboard | React + TS + Vite + Tailwind + **Recharts** (bank-dashboard) |
-| Capture SDK | TypeScript **behavior-sdk** (framework-agnostic; mobile does edge feature extraction) |
+| Capture SDK (web) | TypeScript **behavior-sdk** (framework-agnostic; mobile_edge does feature extraction) |
+| Capture SDK (native) | Kotlin **capture-sdk** (Android) — on-device keystroke/touch/motion capture + TFLite autoencoder inference + the same nonce/HMAC signing scheme as `behavior-sdk` |
 | Packaging | Docker + Docker Compose |
-| Testing | pytest + httpx (backend), Vitest (frontend/SDK) |
+| Testing | pytest + httpx (backend), Vitest (frontend/SDK), Android instrumentation tests (`connectedAndroidTest`) |
 
 ---
 
@@ -65,21 +67,24 @@ cogniguard/
 │       ├── routers/            # auth.py, payment.py, behavior.py, risk.py, admin.py, ws.py — THIN
 │       ├── services/           # integrity, feature_reader, decision_engine, adaptive_auth,
 │       │                       #   txn_fraud_layer, hardening, consent, audit, case_mgmt, broadcaster — LOGIC
-│       ├── scoring/            # isolation_forest.py, xgboost_model.py, stack.py, explain.py, registry.py
+│       ├── scoring/            # isolation_forest.py, autoencoder.py, calibration.py, xgboost_model.py,
+│       │                       #   stack.py, shadow.py, explain.py, registry.py
 │       └── utils/              # geo, fingerprint, security helpers
-│   ├── scripts/                # seed_demo.py, generate_fraud_scenarios.py, load_datasets.py
+│   ├── scripts/                # seed_demo.py, generate_fraud_scenarios.py, load_datasets.py, seed_calibration.py
 │   └── tests/                  # pytest
 │
 ├── flink-jobs/                 # PyFlink feature-engine jobs (Kafka → Redis + S3 mirror)
 │   └── feature_engine.py       # windowed velocity/sum, geo-distance, z-scores, baseline deviation
 │
 ├── training/                   # offline training, registry promotion, drift monitors (S3 → model_registry)
-│   ├── train_xgboost.py · train_isolation_forest.py · datasets/ (CMU/HMOG/INB/TXN adapters)
+│   ├── train_xgboost.py · train_isolation_forest.py · train_lstm_autoencoder.py (Keras → ONNX + TFLite + calibration)
+│   └── datasets/ (CMU/HMOG/INB/TXN adapters; sequence_frames() for ordered AE windows)
 │
 ├── behavior-sdk/               # shared TS capture lib (events, fingerprint, edge-extract, payload, index)
 ├── web-app/                    # Internet Banking demo (React+Vite) — pages/, components/, api.ts
 ├── bank-dashboard/             # Fraud-ops / SOC dashboard (React+Vite+Recharts) — pages/, components/, ws.ts, api.ts
-└── models/                     # local mirror of S3 model artifacts (joblib / xgb)
+├── android/                    # native Android capture-sdk/ (Kotlin) + demo IB app/, parity with web-app/behavior-sdk
+└── models/                     # local mirror of S3 model artifacts (joblib / xgb / onnx / tflite)
 ```
 
 Ports: postgres 5432 · redis 6379 · kafka 9092 · flink-jobmanager 8081 · minio 9000/9001 · gateway 8000 · web-app 5173 · bank-dashboard 5174.
@@ -135,7 +140,7 @@ Gateway runs Alembic migrations + `seed_demo.py` on startup in dev; the Flink fe
 - Channels: `web` / `mobile`. Transfer types: `IMPS` / `NEFT` / `RTGS` / `UPI`.
 - Challenge types: `OTP` / `MPIN` / `FINGERPRINT` / `PASSKEY` / `VOICE_READBACK`.
 - Kafka input topics: `behavior_events` / `device_events` / `login_events` / `transaction_events`. Output: `risk_scores` / `decisions`.
-- Model names: `xgboost_txn` / `isolation_forest` / `lstm_seq` (Phase 2). Model stage: `staging` / `production` / `archived`.
+- Model names: `xgboost_txn` / `isolation_forest` / `lstm_autoencoder` (ONNX, gateway) / `lstm_autoencoder_tflite` (Android). Model stage: `staging` / `production` / `archived`.
 - Case status: `open` / `investigating` / `confirmed_fraud` / `false_positive` / `closed`.
 
 ---
@@ -146,7 +151,7 @@ Gateway runs Alembic migrations + `seed_demo.py` on startup in dev; the Flink fe
 2. **Inference reads Redis ONLY.** Models never query PostgreSQL on the hot path; the gateway reads pre-computed online features from Redis plus the inline payload. PostgreSQL is written for the record and read by dashboards/analysts — never on the scoring request path.
 3. **Redis is rebuildable** from PostgreSQL (durable backstop) + Kafka/S3 (replay). It is a derived cache, not a source of truth.
 4. **Routers thin, logic in services/scoring.** No business logic, DB queries, or model inference in router functions.
-5. **Stacked single score (default).** Run **Isolation Forest first → `Behavior_Score`**, feed it as **one input feature** to **XGBoost**, which emits **one fraud probability → one threshold**. The weighted-ensemble (60% txn / 25% behavior / 15% device) is the configurable alternative — never run both at once.
+5. **AE-primary / IF-shadow-fallback, then stacked into XGBoost (default).** The **LSTM Autoencoder**'s reconstruction error, through the shared **calibration layer**, is the primary source of `Behavior_Score`; **Isolation Forest** scores every event too but only in **shadow** (logged via `behavior_score_source`/`if_shadow_score`, never the acted-on score) and is promoted to the **live** score only on cold-start (no per-user AE calibration yet) or AE failure/timeout (`degraded_mode`). Whichever source wins, `Behavior_Score` feeds as **one input feature** to **XGBoost**, which emits **one fraud probability → one threshold**. The weighted-ensemble (60% txn / 25% behavior / 15% device) is the configurable alternative — never run both at once.
 6. **Bands & thresholds come from the active policy** — never hardcode. `low 0–30`, `medium 30–60`, `high 60–100`, `very_high ≥85` are defaults that live in policy; admin-configurable.
 7. **Every decision persists immutably** (`risk_scores` + `decisions` + `audit_logs`) with `model_version`, `latency_ms`, and machine- + human-readable **reason codes** — 100% of `verify`/`block` decisions carry them.
 8. **Continuous re-scoring.** A Low login can escalate later (new device, unusual transfer, abnormal rhythm, remote-control signature, coercion). A `very_high` continuous score → downgrade/terminate session + alert + `verify`/re-auth.
@@ -171,11 +176,15 @@ Gateway runs Alembic migrations + `seed_demo.py` on startup in dev; the Flink fe
 |------|---------|
 | **Risk orchestration** | Scoring login + every transaction continuously, fusing all signal domains into one number, and driving `allow`/`verify`/`block`. |
 | **Continuous risk** | Risk re-evaluated throughout the session, not just at the login gate; a Low login can escalate or de-escalate later. |
-| **Behavior_Score** | Isolation Forest anomaly output in [0,1] over typing/touch/swipe/session vs. the user's baseline; fed into XGBoost as one feature. |
-| **Stacking** | IF → `Behavior_Score` → XGBoost → single calibrated fraud probability (one threshold to tune). |
+| **Behavior_Score** | Calibrated [0,1] behavioral anomaly score over typing/touch/swipe/session vs. the user's baseline; fed into XGBoost as one feature. AE-primary: from the LSTM Autoencoder's reconstruction error; Isolation Forest's `decision_function` is the shadow/cold-start/fallback source, same [0,1] polarity via the same calibration layer. |
+| **LSTM Autoencoder** | `Input(16,9) → Masking → LSTM(32)→LSTM(16) → RepeatVector → LSTM(16,seq)→LSTM(32,seq) → TimeDistributed(Dense(9))`, masked-MSE, trained offline on genuine sequences only (`training/train_lstm_autoencoder.py`). Served via ONNX Runtime (gateway, web sessions) and TensorFlow Lite (Android, on-device). |
+| **Reconstruction error** | Masked MSE between a `(16,9)` behavioral window and the autoencoder's reconstruction of it — higher means more anomalous; the AE's raw, uncalibrated anomaly signal. |
+| **Calibration layer** | Maps a model's raw anomaly signal (AE reconstruction error, or IF's sign-flipped `decision_function`) onto the shared `Behavior_Score` via a robust-z → logistic transform, anchored so the fitted threshold lands at 0.5. Per-user (`behavior:{user_id}:ae_calib`) else population (`calib:ae:population`) else a neutral default. |
+| **AE cold-start** | Fewer than `MIN_SEQ` real rows in a session's rolling sequence window, or no calibration available yet for that user/population — routes to the Isolation Forest shadow score instead of the AE, biasing to `verify`. |
+| **Stacking** | `Behavior_Score` (AE-primary, IF-shadow-fallback) → XGBoost → single calibrated fraud probability (one threshold to tune). |
 | **Keystroke dynamics** | Typing rhythm: dwell (key down→up), flight (up→next down), inter-key latency vector, hold time. |
 | **Touch / motion dynamics** | Swipe angle/velocity/curvature, touch pressure/area, accelerometer variance (mobile, edge-extracted). |
-| **Device fingerprint** | Stable hash of UA, screen, timezone, language, canvas/WebGL; plus `is_rooted` / `is_emulator`. |
+| **Device fingerprint** | Stable hash of UA, screen, timezone, language, plus a platform-specific entropy source (canvas/WebGL on web, `ANDROID_ID` on Android) and `is_rooted` / `is_emulator`. |
 | **Risk band** | `low` 0–30 (allow) / `medium` 30–60 (verify light) / `high` 60–100 (verify strong) / `very_high` ≥85 (block + alert). |
 | **Adaptive / step-up auth** | The `verify` action — the lightest assurance-ordered factor that clears the risk (OTP/MPIN → biometric/passkey/voice-readback). |
 | **Dynamic Risk Amplifier** | Multiplicative transaction-context override that raises the band when intent is dangerous despite genuine behavior. |
