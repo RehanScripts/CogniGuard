@@ -11,6 +11,7 @@ only ever sees the resulting single `bscore` and has no idea which model produce
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -21,6 +22,8 @@ from ..schemas.scoring import Amplifier, RiskBand, ScoreResult
 from . import amplifiers, autoencoder, calibration, explain, isolation_forest, xgboost_model
 from .amplifiers import TxnContext
 from .registry import Registry
+
+_logger = logging.getLogger("cogniguard.scoring")
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -189,6 +192,19 @@ def score(
     if ae_reason is not None:
         reasons.append(ae_reason)
 
+    _logger.info(
+        "scored entity=%s behavior_score_source=%s ae_recon_error=%s if_shadow_score=%s "
+        "behavior_score=%.2f final_risk_score=%.2f band=%s model_version=%s degraded=%s",
+        "transaction" if txn_context is not None else "login",
+        provenance.source,
+        provenance.ae_recon_error,
+        provenance.if_shadow_score,
+        bscore,
+        final_score,
+        band,
+        model_version,
+        degraded,
+    )
     return ScoreResult(
         behavior_score=bscore,
         transaction_score=final_p,

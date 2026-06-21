@@ -4,7 +4,8 @@
 
     <application
         android:label="@string/app_name"
-        android:theme="@style/Theme.CogniGuardDemo">
+        android:theme="@style/Theme.CogniGuardDemo"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".LoginActivity"
             android:exported="true">

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Parity with web-app/src/pages/Payment.tsx (Implementation.md Phase 18): beneficiary
      VPA, amount, send button, risk/action result line, and a single combined notice
-     line for whichever txn_controls fired (coercion check / manual amount / cooling) --
+     line for whichever txn_controls fired (coercion check / manual amount / cooling);
      the native demo's deliberately simpler stand-in for Payment.tsx's three separate
      interactive components (CoercionCheck/ManualAmountEntry/CoolingNotice), which this
      module doesn't reimplement as native widgets. -->

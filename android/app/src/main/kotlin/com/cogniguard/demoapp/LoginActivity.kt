@@ -12,6 +12,7 @@ import com.cogniguard.capturesdk.TouchCapture
 import com.cogniguard.capturesdk.edge.MobileFeatures
 import com.cogniguard.capturesdk.fingerprint.DeviceFingerprint
 import com.cogniguard.capturesdk.integrity.Signer
+import com.cogniguard.capturesdk.ml.AeSequenceScorer
 import com.cogniguard.capturesdk.model.ActionBlock
 import com.cogniguard.capturesdk.model.ContextBlock
 import com.cogniguard.capturesdk.model.UnsignedBehaviorPayload
@@ -32,6 +33,9 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var keystrokeCapture: KeystrokeCapture
     private lateinit var touchCapture: TouchCapture
     private lateinit var motionCapture: MotionCapture
+    private val aeScorerLazy = lazy { AeSequenceScorer(this) }
+    private val aeScorer by aeScorerLazy
+    private var aeModelVersion: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,7 +65,7 @@ class LoginActivity : AppCompatActivity() {
                     withContext(Dispatchers.IO) { client.register(username, password) }
                     withContext(Dispatchers.IO) { client.setConsent(username) }
 
-                    val behavior = buildBehaviorPayload(action = "LOGIN")
+                    val behavior = withContext(Dispatchers.IO) { buildBehaviorPayload(action = "LOGIN") }
                     val result = withContext(Dispatchers.IO) { client.login(username, password, behavior) }
                     val body = result.body
 
@@ -84,12 +88,16 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildBehaviorPayload(action: String): UnsignedBehaviorPayload {
+    private suspend fun buildBehaviorPayload(action: String): UnsignedBehaviorPayload {
         val device = DeviceFingerprint.compute(this)
         val derivedFeatures =
             MobileFeatures.extract(swipes = touchCapture.drain(), motionSamples = motionCapture.drain()) +
                 keystrokeCapture.derivedFeatures()
         keystrokeCapture.reset()
+        if (aeModelVersion == null) {
+            aeModelVersion = runCatching { client.getAeModel().body.optString("version") }.getOrNull()
+        }
+        val aeReconError = runCatching { aeScorer.score(derivedFeatures) }.getOrNull()
         return UnsignedBehaviorPayload(
             channel = "mobile",
             source = "mobile_edge",
@@ -97,8 +105,8 @@ class LoginActivity : AppCompatActivity() {
             action = ActionBlock(type = action),
             keystroke = null, // mobile_edge sends derived_features only, never raw keystroke (NFR-10)
             derivedFeatures = derivedFeatures.takeIf { it.isNotEmpty() },
-            aeReconError = null, // wired once AutoencoderTFLite is loaded with a real model.tflite asset
-            aeModelVersion = null,
+            aeReconError = aeReconError,
+            aeModelVersion = if (aeReconError != null) aeModelVersion else null,
             context = ContextBlock(submittedAt = Instant.now().toString(), page = "login"),
         )
     }
@@ -106,5 +114,6 @@ class LoginActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         motionCapture.stop()
+        if (aeScorerLazy.isInitialized()) aeScorer.close()
     }
 }
