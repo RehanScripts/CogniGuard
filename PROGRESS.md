@@ -322,10 +322,10 @@ Status: ✅ done · 🚧 in progress · ⬜ todo. Update the row when you pick u
 | 13 | Calibration layer + LSTM Autoencoder scoring module (ONNX, pure) | ✅ | — | phase-12-model-governance | calibration math + AE scorer tests; registry loads ONNX |
 | 14 | Schema + sequence buffer + feature-reader extensions for AE | ✅ | — | phase-12-model-governance | `behavior:{session_id}:seq` buffer; new schema fields; no behavior change |
 | 15 | AE-primary / IF-shadow / fallback routing in the scoring stack | ✅ | — | phase-12-model-governance | AE drives `Behavior_Score`; IF shadow logged; fallback ladder; regression-safe |
-| 16 | LSTM Autoencoder training (ONNX + TFLite + calibration export) | ⬜ | | | trains + exports both artifacts; registry promotion; calib seeded |
-| 17 | Cross-platform integrity canonicalization (mobile AE fields) | ⬜ | | | Python/TS canonical bytes match a shared golden vector |
-| 18 | Native Android app + capture SDK (on-device TFLite) | ⬜ | | | Kotlin signing matches golden vector; on-device AE scores end-to-end |
-| 19 | Docs realignment: PRD.md, CLAUDE.md, System Architecture.md | ⬜ | | | no remaining "LSTM Phase 2 only" claims; AE-primary documented |
+| 16 | LSTM Autoencoder training (ONNX + TFLite + calibration export) | ✅ | — | phase-15-ae-scoring-routing | trains + exports both artifacts; registry promotion; calib seeded |
+| 17 | Cross-platform integrity canonicalization (mobile AE fields) | ✅ | — | phase-15-ae-scoring-routing | Python/TS canonical bytes match a shared golden vector |
+| 18 | Native Android app + capture SDK (on-device TFLite) | ✅ | — | phase-15-ae-scoring-routing | Kotlin signing matches golden vector; on-device AE scores end-to-end |
+| 19 | Docs realignment: PRD.md, CLAUDE.md, System Architecture.md | ✅ | — | phase-15-ae-scoring-routing | no remaining "LSTM Phase 2 only" claims; AE-primary documented |
 
 **Dependency graph (what can run in parallel):**
 ```

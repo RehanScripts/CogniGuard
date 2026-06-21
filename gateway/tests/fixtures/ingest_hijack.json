@@ -1,10 +1,10 @@
 {
   "channel": "web",
   "source": "web_sdk",
-  "nonce": "Zad_t7KxQo8mLm7B5VREGA",
+  "nonce": "q-_AG3SgK2CDbIlAwH6sSw",
   "seq": 99,
-  "ts": "2026-06-20T05:21:28.066754+00:00",
-  "integrity_sig": "bc9256fab419ccc36728a567daf6540c26d22d0724b052e73683d0220bb8cdfa",
+  "ts": "2026-06-21T11:13:09.944240+00:00",
+  "integrity_sig": "6bd57b6be6e59eb492216f32bd3873e11d479cc4d208d1d5bf10e8186c963463",
   "device": {
     "fingerprint": "impostor-tallinn-device-001",
     "ua": "cogniguard-fixture-generator",
@@ -66,6 +66,8 @@
   "mouse": null,
   "touch": null,
   "derived_features": null,
+  "ae_recon_error": null,
+  "ae_model_version": null,
   "context": {
     "submitted_at": "",
     "page": "",

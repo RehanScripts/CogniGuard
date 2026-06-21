@@ -1,10 +1,10 @@
 {
   "channel": "web",
   "source": "web_sdk",
-  "nonce": "keDlDrLu_jplbOZCC9V8Uw",
-  "seq": 1781932888081,
-  "ts": "2026-06-20T05:21:28.081734+00:00",
-  "integrity_sig": "dea0e150e4f72c4b138bf467ff491a864908d1858c81604024a663f36e32df39",
+  "nonce": "Cwox99dyfydMbFvDOjY7AQ",
+  "seq": 1782040389944,
+  "ts": "2026-06-21T11:13:09.945024+00:00",
+  "integrity_sig": "5a911e260014c0e811a1bbbaeebca01f6454a38811ff97b37388d7b228f2c099",
   "device": {
     "fingerprint": "replay-demo-device",
     "ua": "cogniguard-fixture-generator",
@@ -66,6 +66,8 @@
   "mouse": null,
   "touch": null,
   "derived_features": null,
+  "ae_recon_error": null,
+  "ae_model_version": null,
   "context": {
     "submitted_at": "",
     "page": "",

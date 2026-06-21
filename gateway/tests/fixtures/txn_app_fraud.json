@@ -6,10 +6,10 @@
   "behavior": {
     "channel": "web",
     "source": "web_sdk",
-    "nonce": "eT2dXqW-K_H1-Z9cm3xB-w",
+    "nonce": "w1wkNXrZx_vrO3l9-Wxx8Q",
     "seq": 1,
-    "ts": "2026-06-20T05:21:28.075471+00:00",
-    "integrity_sig": "3ac822bd2f72256df73a2e056faf3437bfa00f6493879e0f098bfd858c346ee1",
+    "ts": "2026-06-21T11:13:09.944622+00:00",
+    "integrity_sig": "32abdaf9d5b31388cdeaf26567b05cd8fecc80ec4da60d4271ab9a91a3112199",
     "device": {
       "fingerprint": "known-mumbai-device-001",
       "ua": "cogniguard-fixture-generator",
@@ -71,6 +71,8 @@
     "mouse": null,
     "touch": null,
     "derived_features": null,
+    "ae_recon_error": null,
+    "ae_model_version": null,
     "context": {
       "submitted_at": "",
       "page": "",
