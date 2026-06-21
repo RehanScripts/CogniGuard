@@ -30,7 +30,13 @@ def read_parquet(key: str) -> pd.DataFrame:
 def write_joblib(obj, key: str, *, local_path: str | None = None) -> str:
     buf = io.BytesIO()
     joblib.dump(obj, buf)
-    data = buf.getvalue()
+    return write_bytes(buf.getvalue(), key, local_path=local_path)
+
+
+def write_bytes(data: bytes, key: str, *, local_path: str | None = None) -> str:
+    """Generic byte-blob writer (Implementation.md Phase 16) -- ONNX/TFLite model
+    artifacts and the calibration JSON sidecar don't go through joblib, but otherwise
+    need the exact same S3-plus-local-mirror behavior `write_joblib` already has."""
     get_s3().put_object(Bucket=settings.s3_bucket, Key=key, Body=data)
     if local_path:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)

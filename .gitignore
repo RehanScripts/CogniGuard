@@ -26,6 +26,8 @@ dist/
 models/**/*.joblib
 models/**/*.xgb
 models/**/*.json
+models/**/*.onnx
+models/**/*.tflite
 !models/.gitkeep
 
 # --- Local infra / data volumes ---

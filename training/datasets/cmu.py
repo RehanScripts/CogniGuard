@@ -9,9 +9,29 @@ the 4 typing-relevant dimensions of the shared `BehaviorFeatures` vector (Archit
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
+from training.datasets._windowing import windows_for_series
+
 ID_COLUMNS = ["subject", "sessionIndex", "rep"]
+
+# Full BehaviorFeatures shape (Architecture Sec5.2) -- same 9 names/order as
+# `training.train_isolation_forest.BEHAVIOR_COLUMNS`; duplicated here rather than
+# imported since it's a frozen cross-channel contract, not a value that varies with
+# this adapter (train_isolation_forest.py defines its own copy for the same reason).
+BEHAVIOR_COLUMNS = [
+    "typing_speed",
+    "key_latency_avg",
+    "typing_rhythm_std",
+    "hold_time_avg",
+    "swipe_velocity_norm",
+    "swipe_angle_dev",
+    "touch_pressure_avg",
+    "acceleration_variance",
+    "mouse_velocity_mean",
+]
+_PRESENT = ["typing_speed", "key_latency_avg", "typing_rhythm_std", "hold_time_avg"]
 
 
 def load(path: str) -> pd.DataFrame:
@@ -34,3 +54,28 @@ def behavior_frame(df: pd.DataFrame) -> pd.DataFrame:
     out["typing_rhythm_std"] = df[ud_cols].std(axis=1, ddof=0)
     out["hold_time_avg"] = df[h_cols].mean(axis=1)
     return out.fillna({"typing_speed": 0.0})
+
+
+def sequence_frames(
+    behavior: pd.DataFrame, *, seq_len: int = 16, stride: int = 4, min_seq: int = 4
+) -> tuple[np.ndarray, np.ndarray]:
+    """Ordered per-subject `(seq_len, 9)` windows in the full BehaviorFeatures shape
+    (Implementation.md Phase 16) -- `behavior` is `behavior_frame()`'s output. CMU's 4
+    typing dims are populated in temporal order (sorted `sessionIndex`, `rep`);
+    touch/motion/mouse dims are zero, mirroring `train_isolation_forest.py`'s
+    per-channel pooling so a CMU-only window is dimension-for-dimension consistent
+    with a live web-channel window. Returns `(windows, masks)`: `windows` is
+    `(N, seq_len, 9)` float32, `masks` is `(N, seq_len)` bool.
+    """
+    all_windows: list[np.ndarray] = []
+    all_masks: list[np.ndarray] = []
+    ordered = behavior.sort_values(["sessionIndex", "rep"])
+    for _, s_df in ordered.groupby("subject"):
+        padded = pd.DataFrame(0.0, index=s_df.index, columns=BEHAVIOR_COLUMNS)
+        for col in _PRESENT:
+            padded[col] = s_df[col].to_numpy(dtype=float)
+        matrix = padded[BEHAVIOR_COLUMNS].to_numpy(dtype=np.float32)
+        w, m = windows_for_series(matrix, seq_len=seq_len, stride=stride, min_seq=min_seq)
+        all_windows.extend(w)
+        all_masks.extend(m)
+    return np.stack(all_windows), np.stack(all_masks)
