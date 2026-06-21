@@ -1,8 +1,59 @@
 import { createHash, createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { canonical, fetchNonce, pyFloat, resetSequence, signPayload, type UnsignedPayload } from "./payload.js";
 
 beforeEach(() => resetSequence());
+
+// Implementation.md Phase 17's shared golden vector -- the same fixture
+// gateway/tests/test_integrity_mobile.py (Python) and Phase 18's Android
+// CanonicalTest/SignerTest (Kotlin) assert against, byte-for-byte.
+const GOLDEN_FIXTURE_PATH = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../gateway/tests/fixtures/golden_canonical_mobile.json",
+);
+const golden = JSON.parse(readFileSync(GOLDEN_FIXTURE_PATH, "utf-8")) as {
+  secret: string;
+  payload: UnsignedPayload & { nonce: string; seq: number; ts: string };
+  canonical: string;
+  integrity_sig: string;
+};
+
+describe("golden canonical vector (Phase 17, shared with Python + Kotlin)", () => {
+  it("canonical() over the golden mobile payload matches the fixture string exactly", () => {
+    const { nonce: _nonce, seq: _seq, ts: _ts, ...partial } = golden.payload;
+    const canonicalStr = canonical({
+      channel: partial.channel,
+      source: partial.source,
+      action: { type: partial.action.type },
+      keystroke: null,
+      mouse: null,
+      touch: null,
+      derived_features: Object.fromEntries(
+        Object.entries(partial.derived_features!).map(([k, v]) => [k, pyFloat(v)]),
+      ),
+      ae_recon_error: pyFloat(partial.ae_recon_error!),
+      ae_model_version: partial.ae_model_version,
+      context: {
+        submitted_at: partial.context.submitted_at,
+        page: partial.context.page,
+        pre_txn_dwell_ms: pyFloat(partial.context.pre_txn_dwell_ms),
+        session_age_s: pyFloat(partial.context.session_age_s),
+        correction_rate: pyFloat(partial.context.correction_rate),
+      },
+    });
+    expect(canonicalStr).toBe(golden.canonical);
+  });
+
+  it("HMAC over the golden canonical string matches the fixture signature exactly", () => {
+    const key = createHash("sha256").update(golden.secret + golden.payload.nonce).digest();
+    const msg = golden.payload.nonce + golden.canonical + golden.payload.device.fingerprint + golden.payload.ts;
+    const sig = createHmac("sha256", key).update(msg).digest("hex");
+    expect(sig).toBe(golden.integrity_sig);
+  });
+});
 
 describe("canonical", () => {
   it("sorts nested object keys and uses no whitespace", () => {
@@ -82,6 +133,8 @@ describe("signPayload", () => {
     mouse: { moves: [{ x: 1, y: 2, t: 5 }], clicks: [{ t: 120, dur: 40 }] },
     touch: null,
     derived_features: null,
+    ae_recon_error: null,
+    ae_model_version: null,
     context: {
       submitted_at: "2026-06-17T12:00:01Z",
       page: "login",
@@ -114,6 +167,8 @@ describe("signPayload", () => {
       mouse: basePartial.mouse,
       touch: null,
       derived_features: null,
+      ae_recon_error: null,
+      ae_model_version: null,
       context: {
         submitted_at: basePartial.context.submitted_at,
         page: basePartial.context.page,
@@ -127,6 +182,50 @@ describe("signPayload", () => {
     const expectedSig = createHmac("sha256", key).update(msg).digest("hex");
 
     expect(signed.integrity_sig).toBe(expectedSig);
+  });
+
+  it("binds non-null ae_recon_error/ae_model_version into the signature (mobile_edge path)", async () => {
+    const nonce = "test-nonce-ae";
+    const secret = "change_me_dev_only_super_secret";
+    const mobilePartial: UnsignedPayload = {
+      ...basePartial,
+      channel: "mobile",
+      source: "mobile_edge",
+      keystroke: null,
+      mouse: null,
+      derived_features: { typing_speed: 4 },
+      ae_recon_error: 0.0731,
+      ae_model_version: "lstm_autoencoder@2026-06-20",
+    };
+    const signed = await signPayload(mobilePartial, nonce, secret);
+
+    const canonicalStr = canonical({
+      channel: mobilePartial.channel,
+      source: mobilePartial.source,
+      action: { type: mobilePartial.action.type },
+      keystroke: null,
+      mouse: null,
+      touch: null,
+      derived_features: { typing_speed: pyFloat(4) },
+      ae_recon_error: pyFloat(0.0731),
+      ae_model_version: "lstm_autoencoder@2026-06-20",
+      context: {
+        submitted_at: mobilePartial.context.submitted_at,
+        page: mobilePartial.context.page,
+        pre_txn_dwell_ms: pyFloat(mobilePartial.context.pre_txn_dwell_ms),
+        session_age_s: pyFloat(mobilePartial.context.session_age_s),
+        correction_rate: pyFloat(mobilePartial.context.correction_rate),
+      },
+    });
+    const key = createHash("sha256").update(secret + nonce).digest();
+    const msg = nonce + canonicalStr + mobilePartial.device.fingerprint + signed.ts;
+    const expectedSig = createHmac("sha256", key).update(msg).digest("hex");
+
+    expect(signed.integrity_sig).toBe(expectedSig);
+    // A different ae_recon_error must change the signature -- proves the field is
+    // actually bound into the HMAC, not silently dropped from the canonical tree.
+    const tamperedSig = await signPayload({ ...mobilePartial, ae_recon_error: 0.9 }, nonce, secret);
+    expect(tamperedSig.integrity_sig).not.toBe(signed.integrity_sig);
   });
 
   it("advances seq monotonically and resets via resetSequence()", async () => {
@@ -158,6 +257,8 @@ describe("signPayload", () => {
         submitted_at: "2026-06-17T12:00:01Z",
       },
       derived_features: null,
+      ae_model_version: null,
+      ae_recon_error: null,
       touch: null,
       mouse: { clicks: [{ dur: 40, t: 120 }], moves: [{ t: 5, y: 2, x: 1 }] },
       keystroke: {

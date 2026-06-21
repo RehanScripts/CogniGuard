@@ -6,8 +6,9 @@ export type UnsignedPayload = Omit<BehaviorPayload, "nonce" | "seq" | "ts" | "in
  * Marks a leaf as a Pydantic `float`-typed field. `gateway/app/services/integrity.py`'s
  * `canonical_metrics()` re-serializes the parsed `BehaviorPayload` model via
  * `model_dump(mode="json")`, and Pydantic coerces float-annotated fields (keystroke
- * down/up, the three context timing fields, every `derived_features` value) to Python
- * `float` regardless of what the wire JSON looked like — so a whole-number value like
+ * down/up, the three context timing fields, every `derived_features` value,
+ * `ae_recon_error`) to Python `float` regardless of what the wire JSON looked like —
+ * so a whole-number value like
  * `12` round-trips through Python's `json.dumps` as `"12.0"`, not `"12"`. Untyped dict
  * passthrough fields (`mouse`, `touch`) get no such coercion, so their numbers are left
  * as plain JS numbers here, matching Python's literal pass-through.
@@ -76,6 +77,8 @@ function buildCanonicalMetricsTree(p: UnsignedPayload): unknown {
     derived_features: p.derived_features
       ? Object.fromEntries(Object.entries(p.derived_features).map(([k, v]) => [k, pyFloat(v)]))
       : null,
+    ae_recon_error: p.ae_recon_error === null ? null : pyFloat(p.ae_recon_error),
+    ae_model_version: p.ae_model_version,
     context: {
       submitted_at: p.context.submitted_at,
       page: p.context.page,

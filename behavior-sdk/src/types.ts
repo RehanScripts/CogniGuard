@@ -92,6 +92,10 @@ export interface BehaviorPayload {
   touch: TouchBlock | null;
   // mobile_edge: pre-computed features only (raw streams stay on device)
   derived_features: Record<string, number> | null;
+  // mobile_edge: on-device LSTM Autoencoder output (gateway's
+  // app/schemas/behavior.py ae_recon_error/ae_model_version, Phase 14/17/18).
+  ae_recon_error: number | null;
+  ae_model_version: string | null;
 
   context: ContextBlock;
 }

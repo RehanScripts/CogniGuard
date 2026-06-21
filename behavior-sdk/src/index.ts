@@ -118,6 +118,9 @@ async function collect(action: ActionType = "LOGIN"): Promise<BehaviorPayload> {
       mouse: moves.length > 0 || clicks.length > 0 ? { moves, clicks } : null,
       touch: swipes.length > 0 ? { swipes } : null,
       derived_features: null,
+      // web_sdk never runs the on-device AE (Phase 18, Kotlin/Android-only path).
+      ae_recon_error: null,
+      ae_model_version: null,
       context,
     },
     nonce,

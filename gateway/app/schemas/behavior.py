@@ -77,8 +77,9 @@ class BehaviorPayload(BaseModel):
     # mobile_edge: pre-computed features only (raw streams stay on device)
     derived_features: dict[str, float] | None = None
     # mobile_edge: on-device LSTM Autoencoder output (Implementation.md Phase 14/18).
-    # Not yet part of canonical_metrics()'s signed set -- that's Phase 17's job once the
-    # Kotlin SDK exists to mirror it.
+    # Part of canonical_metrics()'s signed set (Phase 17) -- behavior-sdk's
+    # buildCanonicalMetricsTree() and the Kotlin SDK's Canonical.kt (Phase 18) must
+    # mirror this exactly.
     ae_recon_error: float | None = None
     ae_model_version: str | None = None
 

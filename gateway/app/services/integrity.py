@@ -49,6 +49,8 @@ def canonical_metrics(payload: BehaviorPayload) -> str:
         "mouse": payload.mouse.model_dump(mode="json") if payload.mouse else None,
         "touch": payload.touch.model_dump(mode="json") if payload.touch else None,
         "derived_features": payload.derived_features,
+        "ae_recon_error": payload.ae_recon_error,
+        "ae_model_version": payload.ae_model_version,
         "context": payload.context.model_dump(mode="json"),
     }
     return json.dumps(metrics, sort_keys=True, separators=(",", ":"))

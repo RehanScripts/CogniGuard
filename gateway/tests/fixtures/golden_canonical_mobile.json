@@ -1,0 +1,37 @@
+{
+  "_comment": "Implementation.md Phase 17 shared golden vector. One known mobile BehaviorPayload -> expected canonical_metrics() string -> expected HMAC, computed with the dev-default jwt_secret ('change_me_dev_only_super_secret'). Asserted byte-for-byte by gateway/tests/test_integrity_mobile.py (Python), behavior-sdk/src/payload.test.ts (TypeScript), and Phase 18's Android CanonicalTest/SignerTest (Kotlin) -- the only way to pin three independent implementations to identical bytes.",
+  "secret": "change_me_dev_only_super_secret",
+  "payload": {
+    "channel": "mobile",
+    "source": "mobile_edge",
+    "nonce": "golden-test-nonce-001",
+    "seq": 1,
+    "ts": "2026-06-21T00:00:00+00:00",
+    "device": {
+      "fingerprint": "golden-mobile-device-001",
+      "ua": "cogniguard-android/1.0",
+      "screen": "1080x2280",
+      "timezone": "Asia/Kolkata",
+      "language": "en-IN",
+      "platform": "android",
+      "is_rooted": false,
+      "is_emulator": false
+    },
+    "action": { "type": "LOGIN" },
+    "keystroke": null,
+    "mouse": null,
+    "touch": null,
+    "derived_features": { "typing_speed": 4.2, "swipe_velocity_norm": 812.5 },
+    "ae_recon_error": 0.0731,
+    "ae_model_version": "lstm_autoencoder@2026-06-20",
+    "context": {
+      "submitted_at": "2026-06-21T00:00:00+00:00",
+      "page": "login",
+      "pre_txn_dwell_ms": 350.0,
+      "session_age_s": 12.0,
+      "correction_rate": 0.0
+    }
+  },
+  "canonical": "{\"action\":{\"type\":\"LOGIN\"},\"ae_model_version\":\"lstm_autoencoder@2026-06-20\",\"ae_recon_error\":0.0731,\"channel\":\"mobile\",\"context\":{\"correction_rate\":0.0,\"page\":\"login\",\"pre_txn_dwell_ms\":350.0,\"session_age_s\":12.0,\"submitted_at\":\"2026-06-21T00:00:00+00:00\"},\"derived_features\":{\"swipe_velocity_norm\":812.5,\"typing_speed\":4.2},\"keystroke\":null,\"mouse\":null,\"source\":\"mobile_edge\",\"touch\":null}",
+  "integrity_sig": "3ad1a7fe2fb7f2b60251431d664ad3fdf7e593e16098637bcf41bf2b2f8f37ac"
+}
