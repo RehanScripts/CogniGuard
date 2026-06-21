@@ -1,0 +1,6 @@
+// Implementation.md Phase 18 -- native Android capture-sdk + demo IB app.
+plugins {
+    id("com.android.application") version "8.1.4" apply false
+    id("com.android.library") version "8.1.4" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+}

@@ -55,13 +55,34 @@ def session_id():
 @pytest.fixture
 def population_calibration():
     """Seeds the global population calibration key (Phase 16 normally does this) so
-    ae_cold_start's "or no calibration available" branch can be exercised both ways."""
+    ae_cold_start's "or no calibration available" branch can be exercised both ways.
+    Saves/restores rather than unconditionally deleting on teardown -- this key is
+    shared live Redis state, and a blind delete would wipe Phase 16 training's/
+    seed_calibration's real seeded value out from under every test that runs after
+    this one in the same suite (Implementation.md Phase 18 depends on it surviving)."""
+    previous = redis_client.get(calibration.POPULATION_CALIBRATION_KEY)
     redis_client.set(
         calibration.POPULATION_CALIBRATION_KEY,
         json.dumps({"scale": 1.0, "threshold": 0.5, "temperature": 1.0}),
     )
     yield
+    if previous is None:
+        redis_client.delete(calibration.POPULATION_CALIBRATION_KEY)
+    else:
+        redis_client.set(calibration.POPULATION_CALIBRATION_KEY, previous)
+
+
+@pytest.fixture
+def no_population_calibration():
+    """Inverse of `population_calibration`: guarantees the cold-start-stays-true case
+    actually has no calibration to find, rather than assuming a fresh/empty Redis --
+    Phase 16 training/seed_calibration durably seeds this key in any environment
+    that's run them, so a test can't rely on it being absent by default."""
+    previous = redis_client.get(calibration.POPULATION_CALIBRATION_KEY)
     redis_client.delete(calibration.POPULATION_CALIBRATION_KEY)
+    yield
+    if previous is not None:
+        redis_client.set(calibration.POPULATION_CALIBRATION_KEY, previous)
 
 
 def test_read_bundle_never_touches_postgres(monkeypatch, user_id):
@@ -189,7 +210,9 @@ def test_web_cold_start_clears_once_min_seq_and_calibration_present(
     assert bundle.ae_cold_start is False
 
 
-def test_web_cold_start_stays_true_without_calibration_even_past_min_seq(user_id, session_id):
+def test_web_cold_start_stays_true_without_calibration_even_past_min_seq(
+    user_id, session_id, no_population_calibration
+):
     ctx = FeatureReadContext(behavior=_behavior(), session_id=session_id)
     bundle = None
     for _ in range(fr.MIN_SEQ):
