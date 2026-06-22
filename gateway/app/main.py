@@ -10,7 +10,7 @@ from . import kafka_client, s3_client
 from .config import settings
 from .db import engine
 from .redis_client import ping as redis_ping
-from .routers import admin, auth, behavior, enroll, mobile, payment, risk, ws
+from .routers import admin, auth, banking, behavior, enroll, mobile, payment, risk, ws
 from .scoring.registry import Registry
 from .services import broadcaster
 
@@ -89,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(behavior.router, prefix="/api/v1/behavior", tags=["behavior"])
     app.include_router(enroll.router, prefix="/api/v1/enroll", tags=["enroll"])
     app.include_router(mobile.router, prefix="/api/v1/mobile", tags=["mobile"])
+    app.include_router(banking.router, prefix="/api/v1/banking", tags=["banking"])
     app.include_router(ws.router, prefix="/ws", tags=["ws"])
     return app
 
