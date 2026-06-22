@@ -154,6 +154,101 @@ export function scorePayment(
   });
 }
 
+// Phase 28's customer banking read schemas (gateway/app/schemas/banking.py) --
+// deliberately carry no risk/trust fields (see that file's docstring on the
+// customer/SOC split); field names mirror it verbatim.
+export interface ProfileOut {
+  user_id: string;
+  customer_ref: string | null;
+  full_name: string | null;
+  masked_email: string | null;
+  masked_phone: string | null;
+  kyc_level: string | null;
+  account_status: string;
+  member_since: string | null;
+}
+
+export interface AccountOut {
+  account_id: string;
+  masked_account_number: string | null;
+  account_type: string | null;
+  balance: number | null;
+  currency: string | null;
+  status: string | null;
+  opened_at: string | null;
+}
+
+export interface TransactionOut {
+  transaction_id: string;
+  account_id: string | null;
+  beneficiary_name: string | null;
+  masked_beneficiary_account: string | null;
+  amount: number | null;
+  currency: string | null;
+  transfer_type: string | null;
+  channel: string | null;
+  status: string | null;
+  initiated_at: string | null;
+  completed_at: string | null;
+}
+
+export interface BeneficiaryOut {
+  beneficiary_id: string;
+  name: string | null;
+  masked_account_number: string | null;
+  bank_code: string | null;
+  beneficiary_type: string | null;
+  is_verified: boolean;
+  transfer_count: number;
+  added_at: string | null;
+}
+
+export interface TrustedDeviceOut {
+  device_id: string;
+  label: string | null;
+  is_trusted: boolean;
+  last_used_at: string | null;
+}
+
+export interface ActiveSessionOut {
+  session_id: string;
+  device_label: string | null;
+  location: string | null;
+  started_at: string | null;
+}
+
+export interface SecuritySettingsOut {
+  trusted_devices: TrustedDeviceOut[];
+  active_sessions: ActiveSessionOut[];
+}
+
+function authedGet<T>(path: string, token: string): Promise<ApiResult<T>> {
+  return request(path, { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export function getProfile(token: string): Promise<ApiResult<ProfileOut>> {
+  return authedGet("/api/v1/banking/profile", token);
+}
+
+export function listAccounts(token: string): Promise<ApiResult<AccountOut[]>> {
+  return authedGet("/api/v1/banking/accounts", token);
+}
+
+export function listTransactions(
+  token: string,
+  limit = 50,
+): Promise<ApiResult<TransactionOut[]>> {
+  return authedGet(`/api/v1/banking/transactions?limit=${limit}`, token);
+}
+
+export function listBeneficiaries(token: string): Promise<ApiResult<BeneficiaryOut[]>> {
+  return authedGet("/api/v1/banking/beneficiaries", token);
+}
+
+export function getSecuritySettings(token: string): Promise<ApiResult<SecuritySettingsOut>> {
+  return authedGet("/api/v1/banking/security-settings", token);
+}
+
 const SESSION_TOKEN_KEY = "cogniguard_session_token";
 
 // JWT is short-lived (gateway JWT_TTL_MINUTES=30) and cleared on tab close --
