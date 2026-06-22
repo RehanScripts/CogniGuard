@@ -132,6 +132,10 @@ def ingest(
         reason_codes=result.reason_codes,
         degraded_mode=result.degraded_mode,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
+        device_trust=result.device_score,
     )
     client_response = BehaviorIngestResponse(
         action=action,
@@ -141,6 +145,10 @@ def ingest(
         reason_codes=result.reason_codes,
         degraded_mode=result.degraded_mode,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
+        device_trust=result.device_score,
     )
 
     background_tasks.add_task(
@@ -175,6 +183,7 @@ def ingest(
         model_version=result.model_version,
         trust_score=result.trust_score,
         behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
     )
     background_tasks.add_task(
         event_producer.emit_decision,

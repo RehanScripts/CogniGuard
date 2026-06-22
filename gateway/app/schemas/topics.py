@@ -79,6 +79,9 @@ class RiskScoreEvent(BaseModel):
     # Continuous identity verification (Phase 20-22) -- powers the dashboard Trust panel.
     trust_score: float | None = None
     behavior_match_score: float | None = None
+    # AE-primary/IF-shadow provenance (Phase 14/15), surfaced to the SOC feed in Phase 27
+    # so judges can see the AE/IF source per event, not just the fused Behavior_Score.
+    behavior_score_source: str | None = None
 
 
 class DecisionEvent(BaseModel):

@@ -55,6 +55,7 @@ class DecisionResponse(BaseModel):
     # surface the identity-gated Trust Score; `enrollment` drives the calibration banner.
     trust_score: float | None = None
     behavior_match_score: float | None = None
+    behavior_score_source: str | None = None
     device_trust: float | None = None
     enrollment: EnrollmentProgress | None = None
 
@@ -71,3 +72,10 @@ class BehaviorIngestResponse(BaseModel):
     reason_codes: list[ReasonCode] = Field(default_factory=list)
     degraded_mode: bool = False
     model_version: str = ""
+    # Continuous identity verification (Phase 20-22), surfaced here in Phase 27 so the
+    # dashboard's continuous-monitoring view has the same trust fields the login/payment
+    # paths already return -- no new calculation, just passing through `ScoreResult`.
+    trust_score: float | None = None
+    behavior_match_score: float | None = None
+    behavior_score_source: str | None = None
+    device_trust: float | None = None

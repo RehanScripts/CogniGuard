@@ -51,6 +51,9 @@ def _event_out(row: RiskScore, action: str | None) -> EventOut:
         model_version=row.model_version,
         latency_ms=row.latency_ms,
         scored_at=row.scored_at.isoformat() if row.scored_at else None,
+        trust_score=row.trust_score,
+        behavior_match_score=row.behavior_match_score,
+        behavior_score_source=row.behavior_score_source,
     )
 
 

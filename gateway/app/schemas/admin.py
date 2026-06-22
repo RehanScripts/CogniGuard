@@ -30,6 +30,9 @@ class EventOut(BaseModel):
     model_version: str | None = None
     latency_ms: int | None = None
     scored_at: str | None = None
+    trust_score: float | None = None
+    behavior_match_score: float | None = None
+    behavior_score_source: str | None = None
 
 
 class UserDetailOut(BaseModel):

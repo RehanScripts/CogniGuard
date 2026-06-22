@@ -266,6 +266,7 @@ def login(
         model_version=result.model_version,
         trust_score=result.trust_score,
         behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
         device_trust=result.device_score,
         enrollment=enroll_progress,
     )
@@ -384,6 +385,7 @@ def login(
         model_version=result.model_version,
         trust_score=result.trust_score,
         behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
     )
     background_tasks.add_task(
         event_producer.emit_decision,
