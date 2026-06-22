@@ -44,4 +44,20 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:textColor="#CC0000" />
+
+    <!-- "Security Profile Calibration N/10" banner : enrollment progress (Phase 21). -->
+    <TextView
+        android:id="@+id/calibrationText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:textColor="#1D4ED8" />
+
+    <!-- Identity-gated Trust Score + behavior match (Phase 20-22). -->
+    <TextView
+        android:id="@+id/trustText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="#374151" />
 </LinearLayout>

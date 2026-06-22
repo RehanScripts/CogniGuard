@@ -173,6 +173,8 @@ def ingest(
         final_risk_score=result.final_risk_score,
         risk_band=result.risk_band,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
     )
     background_tasks.add_task(
         event_producer.emit_decision,

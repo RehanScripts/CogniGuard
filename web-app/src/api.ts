@@ -40,6 +40,15 @@ export interface Hardening {
   retry_after_s: number;
 }
 
+// Data-driven enrollment progress (gateway/app/schemas/enrollment.py) -- drives the
+// "Security Profile Calibration N/10" banner.
+export interface EnrollmentProgress {
+  collected: number;
+  required: number;
+  complete: boolean;
+  just_finalized?: boolean;
+}
+
 export interface DecisionResponse {
   action: DecisionAction;
   entity_type: "login" | "transaction";
@@ -56,6 +65,11 @@ export interface DecisionResponse {
   integrity: "OK" | "INTEGRITY_REJECT";
   degraded_mode: boolean;
   model_version: string;
+  // Continuous identity verification (gateway Phase 20-22).
+  trust_score?: number | null;
+  behavior_match_score?: number | null;
+  device_trust?: number | null;
+  enrollment?: EnrollmentProgress | null;
 }
 
 export interface PaymentScoreResponse extends DecisionResponse {

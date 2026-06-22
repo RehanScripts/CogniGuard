@@ -161,6 +161,8 @@ def build_risk_score_event(
     final_risk_score: float,
     risk_band: str,
     model_version: str,
+    trust_score: float | None = None,
+    behavior_match_score: float | None = None,
     ts: str | None = None,
 ) -> dict:
     return RiskScoreEvent(
@@ -172,6 +174,8 @@ def build_risk_score_event(
         final_risk_score=final_risk_score,
         risk_band=risk_band,
         model_version=model_version,
+        trust_score=trust_score,
+        behavior_match_score=behavior_match_score,
         ts=ts or _now_iso(),
     ).model_dump()
 

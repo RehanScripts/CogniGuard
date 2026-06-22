@@ -12,6 +12,9 @@ export interface RiskScoreEvent {
   risk_band: RiskBand;
   model_version: string;
   ts: string;
+  // Continuous identity verification (gateway Phase 20-22). null until enrolled.
+  trust_score?: number | null;
+  behavior_match_score?: number | null;
 }
 
 export interface ReasonCodeLite {

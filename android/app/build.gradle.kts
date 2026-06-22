@@ -43,5 +43,7 @@ dependencies {
     implementation(project(":capture-sdk"))
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    // Real device biometric step-up (FINGERPRINT/FACE) for the `verify` action (Phase 24).
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }

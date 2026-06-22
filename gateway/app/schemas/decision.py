@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .enrollment import EnrollmentProgress
 from .scoring import Amplifier, ReasonCode, RiskBand
 
 Action = Literal["allow", "verify", "block"]
@@ -50,6 +51,12 @@ class DecisionResponse(BaseModel):
     integrity: Literal["OK", "INTEGRITY_REJECT"] = "OK"
     degraded_mode: bool = False
     model_version: str = ""
+    # Continuous identity verification (Phase 20-22). `trust_score`/`behavior_match_score`
+    # surface the identity-gated Trust Score; `enrollment` drives the calibration banner.
+    trust_score: float | None = None
+    behavior_match_score: float | None = None
+    device_trust: float | None = None
+    enrollment: EnrollmentProgress | None = None
 
 
 class BehaviorIngestResponse(BaseModel):

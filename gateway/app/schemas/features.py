@@ -4,6 +4,8 @@ Assembled from Redis online features + the inline payload (feature_reader, Phase
 Scoring helpers (behavior_vector / xgb_features) are added in Phase 6.
 """
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from .behavior import BehaviorPayload
@@ -76,6 +78,13 @@ class FeatureBundle(BaseModel):
     behavior_sequence_mask: list[bool] | None = None  # True = real row, False = padding
     ae_recon_error: float | None = None  # mobile-only, device-computed
     ae_cold_start: bool = False  # too few real samples, or no calibration available yet
+
+    # Per-user identity verification (Implementation.md Phase 20-22). Populated by
+    # feature_reader from `behavior:{uid}:identity_baseline`. Typed `Any` to keep this
+    # schema layer free of a `scoring` import (the parsed value is a
+    # `scoring.identity.IdentityBaseline`); `enrolled` gates the identity Trust anchor.
+    identity_baseline: Any = None
+    enrolled: bool = False
 
     def behavior_vector(self) -> list[float]:
         """9-dim vector in BEHAVIOR_COLUMNS order — matches the IsolationForest artifact."""

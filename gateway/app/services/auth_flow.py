@@ -43,7 +43,16 @@ from ..schemas.scoring import ReasonCode
 from ..scoring import shadow, stack
 from ..scoring.registry import Registry
 from ..utils import fingerprint, security
-from . import audit, case_mgmt, consent, event_producer, feature_reader, hardening, integrity
+from . import (
+    audit,
+    case_mgmt,
+    consent,
+    enrollment,
+    event_producer,
+    feature_reader,
+    hardening,
+    integrity,
+)
 from .adaptive_auth import select_factor
 from .decision_engine import decide
 from .policy import active_policy
@@ -224,6 +233,26 @@ def login(
     if decision.action == "verify":
         step_up = select_factor(decision.assurance or "light", None, policy["stepup"])
 
+    # Data-driven enrollment (Phase 21): while this consented user isn't yet enrolled,
+    # capture each genuine (allow/verify) login as one enrollment session; the cycle that
+    # reaches `required` auto-finalizes the per-user baseline + calibration. Nothing is
+    # seeded -- every parameter is derived from these captured sessions.
+    enroll_progress = None
+    if consent.is_capture_allowed(user):
+        required = enrollment.min_sessions(policy)
+        if enrollment.is_enrolled(str(user.user_id), redis=redis) or decision.action == "block":
+            enroll_progress = enrollment.progress(
+                str(user.user_id), required=required, redis=redis
+            )
+        else:
+            enroll_progress = enrollment.record(
+                str(user.user_id),
+                bundle.behavior_vector(),
+                result.ae_recon_error,
+                required=required,
+                redis=redis,
+            )
+
     response = DecisionResponse(
         action=decision.action,
         entity_type="login",
@@ -235,6 +264,10 @@ def login(
         step_up=step_up,
         degraded_mode=result.degraded_mode,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        device_trust=result.device_score,
+        enrollment=enroll_progress,
     )
 
     session_row: SessionModel | None = None
@@ -349,6 +382,8 @@ def login(
         final_risk_score=result.final_risk_score,
         risk_band=result.risk_band,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
     )
     background_tasks.add_task(
         event_producer.emit_decision,

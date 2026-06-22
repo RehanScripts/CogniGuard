@@ -39,3 +39,9 @@ class ScoreResult(BaseModel):
     behavior_score_source: str | None = None  # "ae" | "if" | "fallback"
     if_shadow_score: float | None = None
     ae_recon_error: float | None = None
+    # Continuous identity verification (Implementation.md Phase 20-22). `trust_score` is
+    # the identity-gated Trust Score (0..100); `behavior_match_score` is the per-user
+    # baseline match (None on cold-start / not-yet-enrolled). `identity_risk` = 100 - trust.
+    trust_score: float | None = None
+    behavior_match_score: float | None = None
+    identity_risk: float | None = None

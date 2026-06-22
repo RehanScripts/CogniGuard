@@ -19,7 +19,15 @@ from redis import Redis
 
 from ..schemas.features import FeatureBundle
 from ..schemas.scoring import Amplifier, RiskBand, ScoreResult
-from . import amplifiers, autoencoder, calibration, explain, isolation_forest, xgboost_model
+from . import (
+    amplifiers,
+    autoencoder,
+    calibration,
+    explain,
+    identity,
+    isolation_forest,
+    xgboost_model,
+)
 from .amplifiers import TxnContext
 from .registry import Registry
 
@@ -181,25 +189,69 @@ def score(
 
     base = round(100 * _clamp(final_p, 0, 1), 1)
     amps: list[Amplifier] = []
-    final_score = base
+    txn_final = base
     if txn_context is not None:
         amps = amplifiers.evaluate(txn_context, policy["amplifiers"])
-        final_score = amplifiers.apply(base, amps)
+        txn_final = amplifiers.apply(base, amps)
+
+    # --- Continuous identity verification (Implementation.md Phase 20-22) -------------
+    # AE stays primary/active: `bscore` (AE-primary, IF-shadow/fallback) is BOTH fed to
+    # XGBoost above AND reused here as the genuineness term -- identity is ADDED alongside
+    # the AE, never instead of it (CLAUDE.md invariant 5). All weights come from policy.
+    trust_weights = policy.get("trust_weights", {})
+    genuineness = 100.0 * (1.0 - bscore)
+    env_consistency = identity.env_consistency(
+        geo_change=bundle.network.geo_change,
+        new_device=bundle.device.is_new_device,
+        vpn=bundle.network.vpn,
+        weights=trust_weights.get("env_penalty", {}),
+    )
+    behavior_match: float | None = None
+    if bundle.enrolled and bundle.identity_baseline is not None:
+        behavior_match = identity.behavior_match_score(
+            bundle.behavior_vector(), bundle.identity_baseline
+        )
+    trust = identity.compute_trust(
+        behavior_match=behavior_match,
+        genuineness=genuineness,
+        device_trust=bundle.device.device_trust,
+        env_consistency=env_consistency,
+        support_weights=trust_weights.get("support", {}),
+    )
+
+    # The identity gate drives the acted-on score only once the user is ENROLLED; until
+    # then behavior is exactly as before (XGBoost/IF + amplifiers), cold-start biased to
+    # `verify` by the decision engine (CLAUDE.md invariant 9). Once enrolled:
+    #   login   -> identity_risk
+    #   payment -> max(identity_risk, txn risk after amplifiers)  (AE/XGBoost stay active
+    #              for APP-fraud/coercion, AND an identity mismatch still escalates)
+    if behavior_match is not None:
+        final_score = (
+            trust.identity_risk if txn_context is None else max(trust.identity_risk, txn_final)
+        )
+    else:
+        final_score = txn_final
 
     band = map_band(final_score, policy["thresholds"])
     reasons = explain.reason_codes(bundle, base_drivers=True) + [a.as_reason() for a in amps]
     ae_reason = explain.ae_anomaly_reason(provenance.ae_recon_error, bscore)
     if ae_reason is not None:
         reasons.append(ae_reason)
+    identity_reason = explain.identity_reason(behavior_match, policy["thresholds"])
+    if identity_reason is not None:
+        reasons.append(identity_reason)
 
     _logger.info(
         "scored entity=%s behavior_score_source=%s ae_recon_error=%s if_shadow_score=%s "
-        "behavior_score=%.2f final_risk_score=%.2f band=%s model_version=%s degraded=%s",
+        "behavior_score=%.2f behavior_match=%s trust_score=%.1f final_risk_score=%.2f "
+        "band=%s model_version=%s degraded=%s",
         "transaction" if txn_context is not None else "login",
         provenance.source,
         provenance.ae_recon_error,
         provenance.if_shadow_score,
         bscore,
+        behavior_match,
+        trust.trust_score,
         final_score,
         band,
         model_version,
@@ -207,6 +259,7 @@ def score(
     )
     return ScoreResult(
         behavior_score=bscore,
+        device_score=bundle.device.device_trust,
         transaction_score=final_p,
         final_risk_score=final_score,
         base_score=base,
@@ -218,4 +271,7 @@ def score(
         behavior_score_source=provenance.source,
         if_shadow_score=provenance.if_shadow_score,
         ae_recon_error=provenance.ae_recon_error,
+        trust_score=trust.trust_score,
+        behavior_match_score=behavior_match,
+        identity_risk=trust.identity_risk,
     )

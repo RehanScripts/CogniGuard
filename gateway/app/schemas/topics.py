@@ -76,6 +76,9 @@ class RiskScoreEvent(BaseModel):
     risk_band: RiskBand
     model_version: str
     ts: str
+    # Continuous identity verification (Phase 20-22) -- powers the dashboard Trust panel.
+    trust_score: float | None = None
+    behavior_match_score: float | None = None
 
 
 class DecisionEvent(BaseModel):

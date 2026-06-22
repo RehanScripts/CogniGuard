@@ -865,6 +865,150 @@ grep -n "Phase 2" CLAUDE.md "System Architecture.md" PRD.md   # no remaining "LS
 
 ---
 
+### Phase 20 — Per-User Identity Scorer (Continuous Identity Verification)
+
+**Goal:** Turn the **global** behavioral anomaly detector into a per-user identity **verifier** (1:1 against the *claimed* username's baseline, never identification). The global LSTM Autoencoder reconstructs *any* genuine human well, so it cannot separate Rehan from Ojas; a per-user **feature-space baseline + robust distance** is the minimal representation that can. The AE stays **primary/active** — its calibrated score is reused as the *genuineness* term and still feeds XGBoost (CLAUDE.md invariant 5) — identity is added **alongside** it.
+
+**Files:**
+```
+gateway/app/scoring/identity.py        # NEW: robust-z (median/MAD) distance, calibrated identity anomaly,
+                                       #   identity-gated multiplicative Trust Score, distance-calib fit
+gateway/app/scoring/calibration.py     # EDIT: public calibrate_distance() wrapper over the shared logistic
+```
+
+`z_i = (x_i − median_i)/(1.4826·mad_i+ε)`, `distance = sqrt(mean(z_i²))`, `anomaly = calibrate_distance(distance, user_calib)`, `behavior_match = 100·(1−anomaly)`. Trust Score is identity-gated: `support = w_ae·genuineness + w_dev·device_trust + w_env·env_consistency` (weights from policy), `trust = (behavior_match/100)·support`, `identity_risk = 100 − trust`. So strong device/AE can't rescue a poor identity match, but a weak AE/device/geo can pull a genuine match down.
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_identity.py -q
+# - vector at baseline → match≈100; far → match≈0
+# - identity gate is multiplicative (impostor match can't be rescued by strong device/AE)
+# - env_consistency penalizes geo_change/new_device/vpn
+```
+**Depends on:** Phase 13 (calibration layer), Phase 6 (BEHAVIOR_COLUMNS order).
+
+---
+
+### Phase 21 — Data-Driven Enrollment (No Seeding)
+
+**Goal:** Rehan and Ojas register as ordinary users and each complete ~`MIN_ENROLL_SESSIONS` (10) genuine login/app-open cycles; the system **computes** the per-user identity baseline + calibrations from that captured data at runtime. **Nothing is hardcoded or pre-seeded** — the static `seed_demo` baseline is not used for them.
+
+**Files:**
+```
+gateway/app/services/enrollment.py     # NEW: record() per cycle → buffer; auto-finalize() median/MAD per dim,
+                                       #   fit identity-distance calib + per-user ae_calib, write both keys
+gateway/app/schemas/enrollment.py      # NEW: EnrollmentProgress / EnrollRequest / EnrollResponse
+gateway/app/routers/enroll.py          # NEW, thin: POST /api/v1/enroll (standalone capture for tests)
+gateway/app/services/auth_flow.py      # EDIT: login() records each genuine cycle while unenrolled, returns progress
+gateway/app/services/policy.py         # EDIT: enrollment.min_sessions + trust_weights blocks (never hardcoded)
+gateway/app/main.py                    # EDIT: mount enroll router
+```
+
+Two durable keys, written **only by `enrollment.finalize()`**: `behavior:{uid}:identity_baseline` (per-dim median/MAD + identity-distance calib + count) and `behavior:{uid}:ae_calib` (per-user AE calibration, fit from the recon errors captured this enrollment — written only when ≥5 real errors were seen, else the population fallback stays). The IF `behavior:{uid}:baseline` continues to be built live by Flink. Partial enrollment → cold-start (`verify`, never `block`).
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_identity.py -q
+# - identity_baseline + ae_calib ABSENT before enrollment, PRESENT only after the 10th cycle
+# - persisted calib params DIFFER from the default/population (derived from fed data, not seeded)
+# - ae_calib skipped when too few recon errors (no per-user fabrication)
+```
+**Depends on:** Phase 20 (scorer + distance-calib fit), Phase 8 (login flow).
+
+---
+
+### Phase 22 — Identity + Trust Layer in the Scoring Stack
+
+**Goal:** Wire identity match + Trust Score into `stack.score` **without touching** `_behavior_score`/AE/XGBoost (additive layer). The identity gate drives the acted-on score only once **enrolled**; until then behavior is exactly as before (cold-start biased to `verify`).
+
+**Files:**
+```
+gateway/app/scoring/stack.py           # EDIT: trust composite; login → identity_risk;
+                                       #   payment → max(identity_risk, txn risk after amplifiers)
+gateway/app/services/feature_reader.py # EDIT: load identity_baseline; set bundle.enrolled
+gateway/app/schemas/features.py        # EDIT: FeatureBundle.identity_baseline + enrolled
+gateway/app/schemas/scoring.py         # EDIT: ScoreResult trust_score/behavior_match_score/identity_risk
+gateway/app/schemas/decision.py        # EDIT: DecisionResponse trust + enrollment fields
+gateway/app/schemas/topics.py · services/event_producer.py · *_flow.py  # EDIT: risk_scores carries trust_score/behavior_match
+```
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_identity.py tests/test_stack_ae.py -q
+# - enrolled match near baseline → low band/allow; far → very_high
+# - AE-active: degraded genuineness lowers trust AND still feeds XGBoost (transaction_score rises)
+# - cold-start (not enrolled) → behavior_match None, acted-on score == legacy base_score (unchanged)
+```
+**Depends on:** Phase 20, Phase 21.
+
+---
+
+### Phase 23 — Identity Reason Code + Escalation
+
+**Goal:** A deterministic `BEHAVIOR_IDENTITY_MISMATCH` reason code ("Behavior does not match the enrolled profile") from the **per-user** baseline, and confirmation that an identity mismatch alone escalates the band (login/payment/continuous re-scoring) — the Ojas-as-Rehan and mid-session-hijack cases.
+
+**Files:**
+```
+gateway/app/scoring/explain.py         # NEW: identity_reason() fires when an enrolled user's match < (100 − medium_max)
+```
+The continuous re-scoring kill-switch (`behavior_flow.ingest` → terminate + JWT revoke on `very_high`) needs no change — it already acts on the identity-driven band.
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_identity.py -q
+# - enrolled mismatch → very_high + BEHAVIOR_IDENTITY_MISMATCH; enrolled match → no such code
+```
+**Depends on:** Phase 22.
+
+---
+
+### Phase 24 — Front-Ends: Calibration Banner, Trust Surfacing, Real Biometric Step-Up
+
+**Goal:** Surface enrollment progress + identity Trust across web, Android, and the SOC dashboard, and drive `verify` through a **real Android `BiometricPrompt`** for phishing-resistant factors.
+
+**Files:**
+```
+web-app/src/components/CalibrationBanner.tsx · TrustBadge.tsx   # NEW
+web-app/src/pages/Login.tsx · Dashboard.tsx · api.ts            # EDIT: enrollment progress + trust types/render
+android/app/.../LoginActivity.kt                                # EDIT: calibration banner, trust line, BiometricPrompt verify
+android/app/.../activity_login.xml · AndroidManifest.xml · build.gradle.kts  # EDIT: views, USE_BIOMETRIC, androidx.biometric
+android/capture-sdk/.../net/CogniGuardClient.kt                 # EDIT: verifyStepUp()
+bank-dashboard/src/components/TrustPanel.tsx                     # NEW: Trust/Match/Device gauges
+bank-dashboard/src/pages/Live.tsx · ws.ts                       # EDIT: latest RiskScoreEvent → TrustPanel; trust fields on the wire
+```
+Web biometrics remain simulated (the existing `StepUp` "Simulate" button covers the new factors); real fingerprint/face is Android-only.
+
+**Acceptance check:**
+```bash
+cd web-app && npx vitest run && npx tsc --noEmit
+cd bank-dashboard && npx vitest run && npx tsc --noEmit
+# manual: "Security Profile Calibration N/10" banner advances over enrollment logins;
+#         dashboard Trust gauge drops live when an impostor uses an enrolled user's credentials
+```
+**Depends on:** Phases 21–23 (progress + trust on the wire).
+
+---
+
+### Phase 25 — Demo Rehearsal & Threshold Tuning
+
+**Goal:** End-to-end rehearsal of the two-user identity demo and any policy threshold/weight tuning for Rehan/Ojas, all from the active policy (never hardcoded).
+
+**Demo script (extends §7.1):**
+1. Register **Rehan**; log in ~10 times (banner reaches 10/10 → baseline auto-generated on the 10th). Confirm in Redis that `identity_baseline`+`ae_calib` appear **only** after the 10th login and are **derived** from the sessions. Every enrollment login is allow/verify, never block. Repeat for **Ojas**.
+2. Rehan logs in normally → high Behavior Match / Trust → **allow** (green Trust gauge).
+3. Ojas logs in as Ojas → matches Ojas's baseline → **allow**.
+4. **Ojas enters Rehan's credentials** → compared to **Rehan's** baseline → low match → `BEHAVIOR_IDENTITY_MISMATCH` → **step-up** (Android BiometricPrompt) / block; Trust gauge drops live.
+5. Mid-session: a different person types on Rehan's authenticated session → `/behavior/ingest` re-scores → `very_high` → session terminated + JWT revoked.
+6. The system never surfaces *who* the user is — verification only.
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest -q     # full suite green (latency budgets still hold; scorer is pure-Python over 9 dims)
+```
+**Depends on:** Phases 20–24.
+
+---
+
 ## 4. API Implementation Reference
 
 All paths prefixed `/api/v1` except the WebSocket. Mirrors PRD §11/§17 and Architecture §5/§6.
@@ -878,6 +1022,7 @@ All paths prefixed `/api/v1` except the WebSocket. Mirrors PRD §11/§17 and Arc
 | POST | `/auth/step-up/verify` | `StepUpVerifyRequest` | `DecisionResponse` (allow+token; sample→quarantine) | 200, 400, 401 | none |
 | POST | `/payment/score` | `PaymentScoreRequest` (+ Bearer) | `PaymentScoreResponse` | 200, 400, 401 | JWT |
 | POST | `/behavior/ingest` | `BehaviorPayload` (+ Bearer) | `{action, reauth?, risk_score, risk_band}` | 200, 400, 401, 409 (nonce reuse) | JWT |
+| POST | `/enroll` | `EnrollRequest` | `EnrollResponse` (`{user_id, progress}`) | 200, 404 | none (demo) |
 | GET | `/risk/session/{id}` | — | `{session_id,risk,band,status}` | 200, 404 | JWT |
 | GET | `/admin/events?band=&user_id=&entity_type=&limit=` | query | `EventOut[]` | 200 | admin |
 | GET | `/admin/users/{id}` | — | `UserDetailOut` | 200, 404 | admin |
@@ -923,6 +1068,7 @@ tests/fixtures/replay_login.json      # a captured signed payload to replay (con
 | `flink-jobs/tests/test_windows.py` | unit | velocity/rolling-sum, zscore, haversine, baseline deviation |
 | `test_feature_reader.py` | unit | Redis-only read (no DB session); cold-start defaults; amount_zscore derivation; known-set membership |
 | `test_scoring.py` | unit | stacked genuine→low / impostor→high; Behavior_Score fed to XGBoost; XGB error→`degraded_mode` + fallback (NFR-4) |
+| `test_identity.py` | unit | per-user distance match; identity-gated Trust; data-driven enrollment (no seeding); enrolled mismatch→very_high + `BEHAVIOR_IDENTITY_MISMATCH`; AE stays active+feeds XGBoost; cold-start unchanged |
 | `test_amplifiers.py` | unit | new-payee(<2h)+amount>80% fires ×1.5; `apply = clamp(base×Π,0,100)`; benign→none |
 | `test_explain.py` | unit | top drivers by \|z\|; phrase map; `std→ε` guard; no SHAP/LIME; within budget |
 | `test_decision.py` | unit | band map; risk×action matrix cells; cold-start very_high→verify (never block); assurance ladder |
