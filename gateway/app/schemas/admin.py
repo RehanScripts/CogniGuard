@@ -7,6 +7,18 @@ from pydantic import BaseModel, Field
 from .scoring import RiskBand
 
 
+class AdminLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AdminLoginResponse(BaseModel):
+    token: str
+    analyst_id: str
+    role: str
+    full_name: str | None = None
+
+
 class PolicyUpdate(BaseModel):
     scoring_mode: Literal["stacked", "weighted"] = "stacked"
     weights: dict[str, float] = Field(default_factory=dict)

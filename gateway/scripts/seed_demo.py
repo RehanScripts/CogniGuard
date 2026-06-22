@@ -27,6 +27,7 @@ import uuid
 from sqlalchemy import select
 
 from app.db import SessionLocal
+from app.models.analyst import Analyst
 from app.models.beneficiary import Beneficiary, UserBeneficiary
 from app.models.governance import ModelRegistry
 from app.models.user import User
@@ -37,6 +38,7 @@ from app.services import auth_flow
 from app.services.policy import DEFAULT_POLICY, POLICY_REDIS_KEY
 from app.utils import fingerprint
 from app.utils.geo import geohash
+from app.utils.security import hash_password
 
 logger = logging.getLogger("cogniguard.seed_demo")
 
@@ -50,6 +52,11 @@ GENUINE_GEO = (19.07, 72.87)  # Mumbai
 
 IMPOSTOR_DEVICE_FP = "impostor-tallinn-device-001"
 IMPOSTOR_GEO = (59.43, 24.75)  # Tallinn -- not written anywhere; see module docstring
+
+ADMIN_EMAIL = "admin@cogniguard.dev"
+ADMIN_PASSWORD = "Passw0rd!"
+ANALYST_EMAIL = "analyst@cogniguard.dev"
+ANALYST_PASSWORD = "Passw0rd!"
 
 SCAMMER_VPA = "scammer@upi"
 BENEFICIARY_AGE_MINUTES = 40
@@ -112,6 +119,21 @@ def _seed_models() -> None:
         logger.exception(
             "model training/registration failed (non-fatal -- scoring runs degraded until fixed)"
         )
+
+
+def _seed_analysts() -> None:
+    """admin@cogniguard.dev (role=admin) + analyst@cogniguard.dev (role=analyst) --
+    Phase 30 demo logins for the bank-dashboard SOC tool."""
+    with SessionLocal() as db:
+        for email, password, role in (
+            (ADMIN_EMAIL, ADMIN_PASSWORD, "admin"),
+            (ANALYST_EMAIL, ANALYST_PASSWORD, "analyst"),
+        ):
+            existing = db.scalar(select(Analyst).where(Analyst.email == email))
+            if existing is None:
+                db.add(Analyst(email=email, password_hash=hash_password(password), role=role))
+        db.commit()
+    logger.info("analysts seeded: %s (admin), %s (analyst)", ADMIN_EMAIL, ANALYST_EMAIL)
 
 
 def _seed_genuine_user() -> uuid.UUID:
@@ -199,6 +221,7 @@ def _seed_beneficiary(user_id: uuid.UUID) -> uuid.UUID:
 def main() -> dict[str, str]:
     _seed_policy()
     _seed_models()
+    _seed_analysts()
     user_id = _seed_genuine_user()
     device_id = _seed_known_device_and_geo(user_id)
     _seed_profile_and_baseline(user_id)

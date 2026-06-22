@@ -1,6 +1,9 @@
 """SQLAlchemy models (OLTP system of record). Importing this package registers all
-16 tables on ``Base.metadata`` so Alembic autogenerate and create_all see them."""
+tables on ``Base.metadata`` so Alembic autogenerate and create_all see them. The
+canonical 16 tables are PRD §17.1's schema; `Analyst` (Phase 30) is a documented
+exception beyond it, same pattern as Phase 28's banking tables."""
 
+from .analyst import Analyst
 from .behavior import BehaviorSample
 from .beneficiary import Beneficiary, UserBeneficiary
 from .device import Device, UserDevice
@@ -27,4 +30,5 @@ __all__ = [
     "Case",
     "AuditLog",
     "ModelRegistry",
+    "Analyst",
 ]
