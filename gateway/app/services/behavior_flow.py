@@ -98,10 +98,14 @@ def ingest(
         user_id=str(user.user_id),
         session_id=str(session.session_id),
         typing_speed=behavior_features.typing_speed,
-        key_latency=behavior_features.key_latency_avg,
-        swipe_angle=behavior_features.swipe_angle_dev,
-        touch_pressure=behavior_features.touch_pressure_avg,
-        mouse_velocity=behavior_features.mouse_velocity_mean,
+        key_latency_avg=behavior_features.key_latency_avg,
+        typing_rhythm_std=behavior_features.typing_rhythm_std,
+        hold_time_avg=behavior_features.hold_time_avg,
+        swipe_velocity_norm=behavior_features.swipe_velocity_norm,
+        swipe_angle_dev=behavior_features.swipe_angle_dev,
+        touch_pressure_avg=behavior_features.touch_pressure_avg,
+        acceleration_variance=behavior_features.acceleration_variance,
+        mouse_velocity_mean=behavior_features.mouse_velocity_mean,
     )
 
     result = stack.score(bundle, policy=policy, registry=registry, redis=redis)

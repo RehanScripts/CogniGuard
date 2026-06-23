@@ -177,6 +177,7 @@ def score_payment(
         device_id=str(device.device_id),
         amount=req.amount,
         beneficiary_id=str(beneficiary.beneficiary_id) if beneficiary else None,
+        session_id=str(session.session_id),
     )
     bundle = feature_reader.read_bundle(str(user.user_id), ctx, redis=redis)
     is_new_payee = bundle.txn.is_new_payee

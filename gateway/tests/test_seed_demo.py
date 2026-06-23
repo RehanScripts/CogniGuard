@@ -103,7 +103,17 @@ def test_seed_demo_writes_expected_redis_state():
     baseline_raw = redis_client.get(f"behavior:{user_id}:baseline")
     assert baseline_raw is not None
     baseline = json.loads(baseline_raw)["_baseline"]
-    for dim in ("typing_speed", "key_latency", "swipe_angle", "touch_pressure", "mouse_velocity"):
+    for dim in (
+        "typing_speed",
+        "key_latency_avg",
+        "typing_rhythm_std",
+        "hold_time_avg",
+        "swipe_velocity_norm",
+        "swipe_angle_dev",
+        "touch_pressure_avg",
+        "acceleration_variance",
+        "mouse_velocity_mean",
+    ):
         assert dim in baseline
         assert f"{dim}_std" in baseline
 

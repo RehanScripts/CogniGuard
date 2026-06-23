@@ -23,14 +23,23 @@ ALL_TOPICS = INPUT_TOPICS + OUTPUT_TOPICS
 
 
 class BehaviorEvent(BaseModel):  # key: user_id
+    """The 9 scalar dims match `BehaviorFeatures`/`BEHAVIOR_COLUMNS` exactly (Architecture
+    §4.2) so Flink's `behavior:{id}:baseline` can track the full vector the IF/AE scorers
+    consume. `typing_rhythm` is the separate raw inter-key-latency vector — stored, not
+    used for baseline math."""
+
     user_id: str = ""  # denormalized into the value for self-contained routing
     session_id: str
     typing_speed: float = 0.0
     typing_rhythm: list[float] = Field(default_factory=list)  # inter-key latency vector
-    key_latency: float = 0.0
-    swipe_angle: float = 0.0
-    touch_pressure: float = 0.0
-    mouse_velocity: float = 0.0
+    key_latency_avg: float = 0.0
+    typing_rhythm_std: float = 0.0
+    hold_time_avg: float = 0.0
+    swipe_velocity_norm: float = 0.0
+    swipe_angle_dev: float = 0.0
+    touch_pressure_avg: float = 0.0
+    acceleration_variance: float = 0.0
+    mouse_velocity_mean: float = 0.0
     ts: str
 
 

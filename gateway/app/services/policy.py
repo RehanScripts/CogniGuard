@@ -48,6 +48,9 @@ DEFAULT_POLICY: dict[str, Any] = {
     "stepup": {
         "light": ["MPIN", "OTP"],
         "strong": ["FINGERPRINT", "PASSKEY", "VOICE_READBACK"],
+        # Failed step-up attempts allowed before login escalates to block + alert
+        # (PRD §10.1 "if fail -> Blocked"). Admin-tunable like every other policy knob.
+        "max_attempts": 3,
     },
     "cooling_off": {"minutes": 30, "reconfirm_channel": "APP_PUSH"},
     "hardening": {"delay_after": 3, "captcha_after": 4, "lock_after": 5, "lock_minutes": 15},

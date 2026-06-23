@@ -89,8 +89,11 @@ def login(
 @router.post("/step-up/verify")
 def step_up_verify(
     req: StepUpVerifyRequest,
+    background_tasks: BackgroundTasks,
     db: DbSession = Depends(deps.get_db),
     redis: Redis = Depends(deps.get_redis),
 ) -> JSONResponse:
-    status_code, response = auth_flow.verify_step_up(db, redis, req)
+    status_code, response = auth_flow.verify_step_up(
+        db, redis, req, background_tasks=background_tasks
+    )
     return JSONResponse(response.model_dump(), status_code=status_code)
