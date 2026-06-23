@@ -1,4 +1,6 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
+
+import { clearAdminToken } from "../api";
 
 const LINKS = [
   { to: "/", label: "Live" },
@@ -8,6 +10,13 @@ const LINKS = [
 ];
 
 export default function NavBar() {
+  const navigate = useNavigate();
+
+  function handleLogout() {
+    clearAdminToken();
+    navigate("/login");
+  }
+
   return (
     <nav className="flex items-center gap-4 border-b bg-gray-900 px-4 py-3 text-white">
       <span className="font-semibold">CogniGuard SOC</span>
@@ -20,6 +29,9 @@ export default function NavBar() {
           {link.label}
         </NavLink>
       ))}
+      <button onClick={handleLogout} className="ml-auto text-sm text-gray-300 hover:text-white">
+        Log out
+      </button>
     </nav>
   );
 }

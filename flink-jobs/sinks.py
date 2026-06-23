@@ -59,10 +59,14 @@ def k_behavior_baseline(uid: str) -> str:
 
 BEHAVIOR_FEATURES = (
     "typing_speed",
-    "key_latency",
-    "swipe_angle",
-    "touch_pressure",
-    "mouse_velocity",
+    "key_latency_avg",
+    "typing_rhythm_std",
+    "hold_time_avg",
+    "swipe_velocity_norm",
+    "swipe_angle_dev",
+    "touch_pressure_avg",
+    "acceleration_variance",
+    "mouse_velocity_mean",
 )
 
 

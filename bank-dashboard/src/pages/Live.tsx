@@ -4,7 +4,14 @@ import { type EventOut, listEvents } from "../api";
 import AlertPanel from "../components/AlertPanel";
 import BandDistribution from "../components/BandDistribution";
 import EventTable, { type EventRow } from "../components/EventTable";
-import { type SocFeedEvent, connectSocFeed, isDecisionEvent } from "../ws";
+import TrustPanel from "../components/TrustPanel";
+import {
+  type RiskScoreEvent,
+  type SocFeedEvent,
+  connectSocFeed,
+  isDecisionEvent,
+  isRiskScoreEvent,
+} from "../ws";
 
 function eventOutToRow(e: EventOut): EventRow {
   return {
@@ -45,6 +52,7 @@ const MAX_ROWS = 200;
 
 export default function Live() {
   const [rows, setRows] = useState<EventRow[]>([]);
+  const [latestRisk, setLatestRisk] = useState<RiskScoreEvent | null>(null);
   const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">("connecting");
 
   useEffect(() => {
@@ -60,6 +68,9 @@ export default function Live() {
     const disconnect = connectSocFeed((event) => {
       counter += 1;
       setRows((prev) => [socEventToRow(event, `live-${counter}`), ...prev].slice(0, MAX_ROWS));
+      if (isRiskScoreEvent(event)) {
+        setLatestRisk(event);
+      }
     }, setWsStatus);
     return disconnect;
   }, []);
@@ -75,6 +86,10 @@ export default function Live() {
           <EventTable rows={rows} />
         </div>
         <div className="space-y-4">
+          <div className="rounded border p-3">
+            <h2 className="mb-2 text-sm font-medium text-gray-600">Identity & Trust</h2>
+            <TrustPanel latest={latestRisk} />
+          </div>
           <div className="rounded border p-3">
             <h2 className="mb-2 text-sm font-medium text-gray-600">Band distribution</h2>
             <BandDistribution rows={rows} />

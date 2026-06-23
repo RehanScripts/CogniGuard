@@ -18,35 +18,24 @@ from training.train_isolation_forest import BEHAVIOR_COLUMNS
 
 EPS = 1e-9
 
-# behavior:{id}:baseline (flink-jobs/sinks.py, BEHAVIOR_FEATURES) only tracks 5
-# abbreviated dims, not the 9 BehaviorFeatures names -- a pre-existing Phase 4 gap, not
-# something Phase 6 should fix by renaming a separate deployment unit's keys. Map the
-# overlapping dims; the rest pass through unstandardized.
-_BASELINE_KEY_MAP = {
-    "typing_speed": "typing_speed",
-    "key_latency_avg": "key_latency",
-    "swipe_angle_dev": "swipe_angle",
-    "touch_pressure_avg": "touch_pressure",
-    "mouse_velocity_mean": "mouse_velocity",
-}
-
 
 def _sigmoid(x: float) -> float:
     return 1.0 / (1.0 + math.exp(-x))
 
 
 def load_baseline(user_id: str, *, redis: Redis) -> dict[str, tuple[float, float]] | None:
-    """Read behavior:{id}:baseline (Flink-written JSON). Returns {feature: (mean, std)}
-    for the overlapping dims, or None if absent (cold-start / new user)."""
+    """Read behavior:{id}:baseline (Flink-written JSON, BEHAVIOR_COLUMNS-named). Returns
+    {feature: (mean, std)} for whichever dims are present, or None if absent (cold-start /
+    new user)."""
     raw = redis.get(f"behavior:{user_id}:baseline")
     if not raw:
         return None
     acc = json.loads(raw)
     baseline = acc.get("_baseline", {})
     out: dict[str, tuple[float, float]] = {}
-    for bf_name, flink_name in _BASELINE_KEY_MAP.items():
-        if flink_name in baseline:
-            out[bf_name] = (baseline[flink_name], baseline.get(f"{flink_name}_std", 0.0))
+    for name in BEHAVIOR_COLUMNS:
+        if name in baseline:
+            out[name] = (baseline[name], baseline.get(f"{name}_std", 0.0))
     return out or None
 
 

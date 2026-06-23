@@ -22,6 +22,7 @@ from app.schemas.admin import CaseUpdate
 from app.services import case_mgmt
 from app.utils import security
 from app.models.user import User
+from scripts.seed_demo import ADMIN_EMAIL, ADMIN_PASSWORD
 
 pytestmark = pytest.mark.skipif(
     not (redis_ping() and kafka_ping() and s3_ping()), reason="live infra not reachable"
@@ -87,7 +88,11 @@ def test_admin_cases_endpoint_list_and_patch(db):
     )
 
     with TestClient(app) as client:
-        headers = {"X-Admin-Token": settings.jwt_secret}
+        login = client.post(
+            "/api/v1/admin/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+        )
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": f"Bearer {login.json()['token']}"}
         r = client.get("/api/v1/admin/cases", headers=headers, params={"status": "open"})
         assert r.status_code == 200
         assert any(c["case_id"] == str(case.case_id) for c in r.json())
@@ -101,4 +106,4 @@ def test_admin_cases_endpoint_list_and_patch(db):
         assert r2.json()["status"] == "false_positive"
 
         r3 = client.get("/api/v1/admin/cases", params={"status": "open"})
-        assert r3.status_code == 403
+        assert r3.status_code == 401

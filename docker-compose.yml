@@ -83,6 +83,12 @@ services:
     depends_on:
       kafka: { condition: service_healthy }
       redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8081/overview >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
 
   flink-taskmanager:
     build: ./flink-jobs
@@ -97,8 +103,42 @@ services:
     depends_on:
       flink-jobmanager: { condition: service_started }
 
+  # One-shot: creates the Kafka topics before anything tries to read/write them.
+  # Previously only `gateway`'s own lifespan did this (Architecture §4.2) -- fine when
+  # the Flink job was submitted manually well after the gateway had already booted, but
+  # auto-submitting it via `flink-job-submit` below now races ahead of topic creation
+  # unless something else creates them first. Uses the gateway image (already has
+  # confluent_kafka + this script) rather than inventing a new image.
+  kafka-topics-init:
+    build: ./gateway
+    image: cogni_guard-gateway
+    entrypoint: ["python", "-m", "scripts.create_topics"]
+    env_file: [.env]
+    volumes:
+      - "./gateway:/app"
+      - "./training:/app/training"   # app.schemas.features imports training.* at module load
+    depends_on:
+      kafka: { condition: service_healthy }
+    restart: "no"
+
+  # One-shot: submits the feature-engine job once the cluster + topics are up (mirrors
+  # the minio-init pattern). Removes the previously-manual `flink run` step from §2 of
+  # PROGRESS.md -- `docker compose up` alone now gets Redis features flowing.
+  flink-job-submit:
+    build: ./flink-jobs
+    image: cogniguard-flink:1.18
+    command: ["flink", "run", "-d", "-py", "/jobs/feature_engine.py", "-m", "flink-jobmanager:8081"]
+    env_file: [.env]
+    volumes: ["./flink-jobs:/jobs"]
+    depends_on:
+      flink-jobmanager: { condition: service_healthy }
+      flink-taskmanager: { condition: service_started }
+      kafka-topics-init: { condition: service_completed_successfully }
+    restart: "no"
+
   gateway:
     build: ./gateway
+    image: cogni_guard-gateway
     env_file: [.env]
     ports: ["8000:8000"]
     volumes:
@@ -112,6 +152,7 @@ services:
       redis: { condition: service_healthy }
       kafka: { condition: service_healthy }
       minio: { condition: service_healthy }
+      flink-job-submit: { condition: service_completed_successfully }
 
   # --- UI services join in Phase 11; start with:  docker compose --profile ui up --build ---
   web-app:

@@ -2,11 +2,22 @@
 // names mirror gateway/app/schemas/admin.py exactly -- never re-derive them.
 export const API_BASE: string = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
-// deps.require_admin is a flat shared-secret check against settings.jwt_secret (no
-// real RBAC exists yet, gateway/app/deps.py) -- mirrors the same demo simplification
-// behavior-sdk's signingSecret already accepts. There is no admin login page in this
-// app by design (Implementation.md's bank-dashboard file list has none).
-const ADMIN_TOKEN: string = import.meta.env.VITE_ADMIN_TOKEN || "change_me_dev_only_super_secret";
+// Phase 30: admin-track JWT (`deps.require_role`), separate from the shared-secret
+// `X-Admin-Token` this app used before real RBAC existed. Stored in sessionStorage so
+// it doesn't survive a closed tab, mirroring web-app's session token convention.
+const ADMIN_TOKEN_KEY = "cogniguard_admin_token";
+
+export function setAdminToken(token: string): void {
+  sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+}
+
+export function getAdminToken(): string | null {
+  return sessionStorage.getItem(ADMIN_TOKEN_KEY);
+}
+
+export function clearAdminToken(): void {
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+}
 
 export type RiskBand = "low" | "medium" | "high" | "very_high";
 export type CaseStatus = "open" | "investigating" | "confirmed_fraud" | "false_positive" | "closed";
@@ -99,15 +110,33 @@ export interface PolicyDict {
   hardening: Record<string, unknown>;
 }
 
+export interface AdminLoginResponse {
+  token: string;
+  analyst_id: string;
+  role: "admin" | "analyst";
+  full_name?: string | null;
+}
+
 interface ApiResult<T> {
   status: number;
   body: T;
 }
 
+export function adminLogin(
+  email: string,
+  password: string,
+): Promise<ApiResult<AdminLoginResponse>> {
+  return fetch(`${API_BASE}/api/v1/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  }).then(async (res) => ({ status: res.status, body: (await res.json()) as AdminLoginResponse }));
+}
+
 async function adminRequest<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string> | undefined),
-    "X-Admin-Token": ADMIN_TOKEN,
+    Authorization: `Bearer ${getAdminToken() ?? ""}`,
   };
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const body = (await res.json()) as T;

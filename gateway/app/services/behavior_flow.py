@@ -98,10 +98,14 @@ def ingest(
         user_id=str(user.user_id),
         session_id=str(session.session_id),
         typing_speed=behavior_features.typing_speed,
-        key_latency=behavior_features.key_latency_avg,
-        swipe_angle=behavior_features.swipe_angle_dev,
-        touch_pressure=behavior_features.touch_pressure_avg,
-        mouse_velocity=behavior_features.mouse_velocity_mean,
+        key_latency_avg=behavior_features.key_latency_avg,
+        typing_rhythm_std=behavior_features.typing_rhythm_std,
+        hold_time_avg=behavior_features.hold_time_avg,
+        swipe_velocity_norm=behavior_features.swipe_velocity_norm,
+        swipe_angle_dev=behavior_features.swipe_angle_dev,
+        touch_pressure_avg=behavior_features.touch_pressure_avg,
+        acceleration_variance=behavior_features.acceleration_variance,
+        mouse_velocity_mean=behavior_features.mouse_velocity_mean,
     )
 
     result = stack.score(bundle, policy=policy, registry=registry, redis=redis)
@@ -132,6 +136,10 @@ def ingest(
         reason_codes=result.reason_codes,
         degraded_mode=result.degraded_mode,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
+        device_trust=result.device_score,
     )
     client_response = BehaviorIngestResponse(
         action=action,
@@ -141,6 +149,10 @@ def ingest(
         reason_codes=result.reason_codes,
         degraded_mode=result.degraded_mode,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
+        device_trust=result.device_score,
     )
 
     background_tasks.add_task(
@@ -173,6 +185,9 @@ def ingest(
         final_risk_score=result.final_risk_score,
         risk_band=result.risk_band,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
     )
     background_tasks.add_task(
         event_producer.emit_decision,

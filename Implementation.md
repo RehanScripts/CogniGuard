@@ -865,6 +865,296 @@ grep -n "Phase 2" CLAUDE.md "System Architecture.md" PRD.md   # no remaining "LS
 
 ---
 
+### Phase 20 — Per-User Identity Scorer (Continuous Identity Verification)
+
+**Goal:** Turn the **global** behavioral anomaly detector into a per-user identity **verifier** (1:1 against the *claimed* username's baseline, never identification). The global LSTM Autoencoder reconstructs *any* genuine human well, so it cannot separate Rehan from Ojas; a per-user **feature-space baseline + robust distance** is the minimal representation that can. The AE stays **primary/active** — its calibrated score is reused as the *genuineness* term and still feeds XGBoost (CLAUDE.md invariant 5) — identity is added **alongside** it.
+
+**Files:**
+```
+gateway/app/scoring/identity.py        # NEW: robust-z (median/MAD) distance, calibrated identity anomaly,
+                                       #   identity-gated multiplicative Trust Score, distance-calib fit
+gateway/app/scoring/calibration.py     # EDIT: public calibrate_distance() wrapper over the shared logistic
+```
+
+`z_i = (x_i − median_i)/(1.4826·mad_i+ε)`, `distance = sqrt(mean(z_i²))`, `anomaly = calibrate_distance(distance, user_calib)`, `behavior_match = 100·(1−anomaly)`. Trust Score is identity-gated: `support = w_ae·genuineness + w_dev·device_trust + w_env·env_consistency` (weights from policy), `trust = (behavior_match/100)·support`, `identity_risk = 100 − trust`. So strong device/AE can't rescue a poor identity match, but a weak AE/device/geo can pull a genuine match down.
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_identity.py -q
+# - vector at baseline → match≈100; far → match≈0
+# - identity gate is multiplicative (impostor match can't be rescued by strong device/AE)
+# - env_consistency penalizes geo_change/new_device/vpn
+```
+**Depends on:** Phase 13 (calibration layer), Phase 6 (BEHAVIOR_COLUMNS order).
+
+---
+
+### Phase 21 — Data-Driven Enrollment (No Seeding)
+
+**Goal:** Rehan and Ojas register as ordinary users and each complete ~`MIN_ENROLL_SESSIONS` (10) genuine login/app-open cycles; the system **computes** the per-user identity baseline + calibrations from that captured data at runtime. **Nothing is hardcoded or pre-seeded** — the static `seed_demo` baseline is not used for them.
+
+**Files:**
+```
+gateway/app/services/enrollment.py     # NEW: record() per cycle → buffer; auto-finalize() median/MAD per dim,
+                                       #   fit identity-distance calib + per-user ae_calib, write both keys
+gateway/app/schemas/enrollment.py      # NEW: EnrollmentProgress / EnrollRequest / EnrollResponse
+gateway/app/routers/enroll.py          # NEW, thin: POST /api/v1/enroll (standalone capture for tests)
+gateway/app/services/auth_flow.py      # EDIT: login() records each genuine cycle while unenrolled, returns progress
+gateway/app/services/policy.py         # EDIT: enrollment.min_sessions + trust_weights blocks (never hardcoded)
+gateway/app/main.py                    # EDIT: mount enroll router
+```
+
+Two durable keys, written **only by `enrollment.finalize()`**: `behavior:{uid}:identity_baseline` (per-dim median/MAD + identity-distance calib + count) and `behavior:{uid}:ae_calib` (per-user AE calibration, fit from the recon errors captured this enrollment — written only when ≥5 real errors were seen, else the population fallback stays). The IF `behavior:{uid}:baseline` continues to be built live by Flink. Partial enrollment → cold-start (`verify`, never `block`).
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_identity.py -q
+# - identity_baseline + ae_calib ABSENT before enrollment, PRESENT only after the 10th cycle
+# - persisted calib params DIFFER from the default/population (derived from fed data, not seeded)
+# - ae_calib skipped when too few recon errors (no per-user fabrication)
+```
+**Depends on:** Phase 20 (scorer + distance-calib fit), Phase 8 (login flow).
+
+---
+
+### Phase 22 — Identity + Trust Layer in the Scoring Stack
+
+**Goal:** Wire identity match + Trust Score into `stack.score` **without touching** `_behavior_score`/AE/XGBoost (additive layer). The identity gate drives the acted-on score only once **enrolled**; until then behavior is exactly as before (cold-start biased to `verify`).
+
+**Files:**
+```
+gateway/app/scoring/stack.py           # EDIT: trust composite; login → identity_risk;
+                                       #   payment → max(identity_risk, txn risk after amplifiers)
+gateway/app/services/feature_reader.py # EDIT: load identity_baseline; set bundle.enrolled
+gateway/app/schemas/features.py        # EDIT: FeatureBundle.identity_baseline + enrolled
+gateway/app/schemas/scoring.py         # EDIT: ScoreResult trust_score/behavior_match_score/identity_risk
+gateway/app/schemas/decision.py        # EDIT: DecisionResponse trust + enrollment fields
+gateway/app/schemas/topics.py · services/event_producer.py · *_flow.py  # EDIT: risk_scores carries trust_score/behavior_match
+```
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_identity.py tests/test_stack_ae.py -q
+# - enrolled match near baseline → low band/allow; far → very_high
+# - AE-active: degraded genuineness lowers trust AND still feeds XGBoost (transaction_score rises)
+# - cold-start (not enrolled) → behavior_match None, acted-on score == legacy base_score (unchanged)
+```
+**Depends on:** Phase 20, Phase 21.
+
+---
+
+### Phase 23 — Identity Reason Code + Escalation
+
+**Goal:** A deterministic `BEHAVIOR_IDENTITY_MISMATCH` reason code ("Behavior does not match the enrolled profile") from the **per-user** baseline, and confirmation that an identity mismatch alone escalates the band (login/payment/continuous re-scoring) — the Ojas-as-Rehan and mid-session-hijack cases.
+
+**Files:**
+```
+gateway/app/scoring/explain.py         # NEW: identity_reason() fires when an enrolled user's match < (100 − medium_max)
+```
+The continuous re-scoring kill-switch (`behavior_flow.ingest` → terminate + JWT revoke on `very_high`) needs no change — it already acts on the identity-driven band.
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest tests/test_identity.py -q
+# - enrolled mismatch → very_high + BEHAVIOR_IDENTITY_MISMATCH; enrolled match → no such code
+```
+**Depends on:** Phase 22.
+
+---
+
+### Phase 24 — Front-Ends: Calibration Banner, Trust Surfacing, Real Biometric Step-Up
+
+**Goal:** Surface enrollment progress + identity Trust across web, Android, and the SOC dashboard, and drive `verify` through a **real Android `BiometricPrompt`** for phishing-resistant factors.
+
+**Files:**
+```
+web-app/src/components/CalibrationBanner.tsx · TrustBadge.tsx   # NEW
+web-app/src/pages/Login.tsx · Dashboard.tsx · api.ts            # EDIT: enrollment progress + trust types/render
+android/app/.../LoginActivity.kt                                # EDIT: calibration banner, trust line, BiometricPrompt verify
+android/app/.../activity_login.xml · AndroidManifest.xml · build.gradle.kts  # EDIT: views, USE_BIOMETRIC, androidx.biometric
+android/capture-sdk/.../net/CogniGuardClient.kt                 # EDIT: verifyStepUp()
+bank-dashboard/src/components/TrustPanel.tsx                     # NEW: Trust/Match/Device gauges
+bank-dashboard/src/pages/Live.tsx · ws.ts                       # EDIT: latest RiskScoreEvent → TrustPanel; trust fields on the wire
+```
+Web biometrics remain simulated (the existing `StepUp` "Simulate" button covers the new factors); real fingerprint/face is Android-only.
+
+**Acceptance check:**
+```bash
+cd web-app && npx vitest run && npx tsc --noEmit
+cd bank-dashboard && npx vitest run && npx tsc --noEmit
+# manual: "Security Profile Calibration N/10" banner advances over enrollment logins;
+#         dashboard Trust gauge drops live when an impostor uses an enrolled user's credentials
+```
+**Depends on:** Phases 21–23 (progress + trust on the wire).
+
+---
+
+### Phase 25 — Demo Rehearsal & Threshold Tuning
+
+**Goal:** End-to-end rehearsal of the two-user identity demo and any policy threshold/weight tuning for Rehan/Ojas, all from the active policy (never hardcoded).
+
+**Demo script (extends §7.1):**
+1. Register **Rehan**; log in ~10 times (banner reaches 10/10 → baseline auto-generated on the 10th). Confirm in Redis that `identity_baseline`+`ae_calib` appear **only** after the 10th login and are **derived** from the sessions. Every enrollment login is allow/verify, never block. Repeat for **Ojas**.
+2. Rehan logs in normally → high Behavior Match / Trust → **allow** (green Trust gauge).
+3. Ojas logs in as Ojas → matches Ojas's baseline → **allow**.
+4. **Ojas enters Rehan's credentials** → compared to **Rehan's** baseline → low match → `BEHAVIOR_IDENTITY_MISMATCH` → **step-up** (Android BiometricPrompt) / block; Trust gauge drops live.
+5. Mid-session: a different person types on Rehan's authenticated session → `/behavior/ingest` re-scores → `very_high` → session terminated + JWT revoked.
+6. The system never surfaces *who* the user is — verification only.
+
+**Acceptance check:**
+```bash
+docker compose exec gateway pytest -q     # full suite green (latency budgets still hold; scorer is pure-Python over 9 dims)
+```
+**Depends on:** Phases 20–24.
+
+---
+
+### Phase 26 — Boot Correctness: Flink Auto-Submit + AE Calibration Self-Seeding
+
+**Goal:** `docker compose up` alone (no manual `flink run`, no manual training/seeding command) must yield a fully operational system: the Flink feature-engine job running, Redis behavioral baselines/velocity counters/device trust/geo/beneficiary context populating from real events, and the AE able to clear cold-start whenever a pre-trained autoencoder artifact already exists on disk. No new models/scoring — this phase only wires already-built pieces (Phase 4's `feature_engine.py`, Phase 16's calibration layer) into the boot sequence. Full design/verification record: `phases/PHASE_26_boot_correctness.md`.
+
+**Files:**
+```
+docker-compose.yml                     # EDIT: flink-jobmanager healthcheck; new one-shot kafka-topics-init +
+                                       #   flink-job-submit services; gateway depends_on flink-job-submit
+gateway/scripts/seed_calibration.py    # EDIT: self-heals a missing production lstm_autoencoder row from a
+                                       #   local MODEL_DIR artifact (register_model + default_calibration()
+                                       #   fallback) instead of only the prior disaster-recovery LookupError path
+gateway/entrypoint.sh                  # EDIT: RUN_SEED_ON_START-gated seed_calibration step, non-fatal
+```
+**Found during verification, not anticipated in the original plan:** auto-submitting the Flink job before Kafka topics exist races `UnknownTopicOrPartitionException` (topic auto-create is off) — fixed by making `flink-job-submit` depend on the new `kafka-topics-init` one-shot completing first.
+
+**Acceptance check:**
+```bash
+docker compose down && docker compose up --build -d
+curl localhost:8081/jobs/overview   # "state":"RUNNING", tasks running:4 — no manual flink run
+docker compose exec gateway python -m pytest -q   # 185 passed, 1 skipped — boot-sequence only, no scoring change
+```
+**Depends on:** Phase 4 (`feature_engine.py`), Phase 16 (calibration export).
+
+---
+
+### Phase 27 — Surface & Persist Trust Signals
+
+**Goal:** `/behavior/ingest` returns the same trust fields `/auth/login`/`/payment/score` already did; `behavior_score_source` (AE vs IF provenance) is visible everywhere a trust field is, not just logged internally; both are persisted on the `risk_scores` row so dashboard history/case views have real data. No new calculation — every field already existed on `ScoreResult` (Phase 22); this phase only plumbs it through to responses, the Kafka `risk_scores` topic, Postgres, and `/admin/events`. Full design/verification record: `phases/PHASE_27_trust_signal_surfacing.md`.
+
+**Files:**
+```
+gateway/app/schemas/decision.py        # EDIT: BehaviorIngestResponse gains trust_score/behavior_match_score/
+                                       #   behavior_score_source/device_trust; DecisionResponse gains
+                                       #   behavior_score_source (trust fields already existed, Phase 20-22)
+gateway/app/services/behavior_flow.py · auth_flow.py · payment_flow.py   # EDIT: pass the 3 fields through;
+                                       #   payment_flow's response previously surfaced none of them (parity fix)
+gateway/app/schemas/topics.py · services/event_producer.py   # EDIT: RiskScoreEvent + build/emit_risk_score
+                                       #   gain behavior_score_source
+gateway/app/models/scoring.py          # EDIT: RiskScore gains trust_score/behavior_match_score/
+                                       #   behavior_score_source columns (Numeric(5,2)/Numeric(5,2)/String(16))
+gateway/alembic/versions/7127f86380d8_phase_27_persist_trust_score_behavior_.py   # NEW migration
+gateway/app/services/audit.py          # EDIT: persist_risk_score copies the 3 fields onto the new columns
+gateway/app/schemas/admin.py · routers/admin.py   # EDIT: EventOut + _event_out() carry the 3 fields
+```
+
+**Acceptance check:**
+```bash
+docker compose exec gateway alembic upgrade head   # only the 3 intended columns
+docker compose restart gateway   # uvicorn has no --reload
+docker compose exec gateway python -m pytest -q   # 185 passed, 1 skipped — plumbing only
+# live: POST /auth/login -> response + the persisted risk_scores row + GET /admin/events
+#   all carry trust_score/behavior_match_score/behavior_score_source identically
+```
+**Depends on:** Phase 22 (the fields already existed on `ScoreResult`).
+
+---
+
+### Phase 28 — Thin Read-Only Banking Endpoints (Authorized Exception)
+
+**Goal:** The customer banking screens (Accounts, Transactions, Beneficiaries, Profile, Security Settings) had no read API — only ORM models with zero routes. **One user-approved exception** to "don't add backend functionality": thin, read-only, PII-masked `GET` endpoints, no new tables/writes/scoring/business logic. Phases 29/30 consume these directly. Full design/verification record: `phases/PHASE_28_banking_endpoints.md`.
+
+**Files:**
+```
+gateway/app/utils/mask.py              # NEW: mask_account_number/mask_email/mask_phone — first PII-masking
+                                       #   helper in the codebase
+gateway/app/schemas/banking.py         # NEW: ProfileOut/AccountOut/TransactionOut/BeneficiaryOut/
+                                       #   TrustedDeviceOut/ActiveSessionOut/SecuritySettingsOut — carry
+                                       #   no risk/trust fields by design (customer/SOC split enforced
+                                       #   from the first commit, unlike Phase 27's wire contracts)
+gateway/app/services/banking.py        # NEW: get_profile/list_accounts/list_transactions/
+                                       #   list_beneficiaries/get_security_settings — scoped SELECTs,
+                                       #   PII-masked before constructing response objects
+gateway/app/routers/banking.py         # NEW: GET /profile, /accounts, /transactions, /beneficiaries,
+                                       #   /security-settings — all behind deps.get_current_user (no new
+                                       #   auth mechanism)
+gateway/app/main.py                    # EDIT: mount banking.router at /api/v1/banking
+```
+
+**Acceptance check:**
+```bash
+docker compose restart gateway
+docker compose exec gateway python -m pytest -q tests/test_banking.py   # 6 passed
+docker compose exec gateway python -m pytest -q                          # 191 passed, 1 skipped
+# live: /profile never returns a raw email/phone key; /accounts masked_account_number
+#   keeps real last 4 digits; /transactions and /security-settings never carry
+#   transaction_risk_score/decision/decision_reason/device trust_score; all 5 401/403 without a bearer token
+```
+**Depends on:** Phase 8 (existing `Account`/`Transaction`/`Beneficiary`/`User` models, `deps.get_current_user`).
+
+---
+
+### Phase 29 — web-app UI for the Phase 28 Banking Endpoints
+
+**Goal:** Dashboard shows the real account balance/profile name from `/api/v1/banking/{profile,accounts}` instead of a hardcoded demo balance; new `/transactions` and `/security` pages surface transaction history, beneficiaries, trusted devices, and active sessions from the corresponding endpoints.
+
+**Files:**
+```
+web-app/src/api.ts                     # EDIT: getProfile/listAccounts/listTransactions/listBeneficiaries/
+                                       #   getSecuritySettings — all calls centralized here per CLAUDE.md §5
+web-app/src/pages/Dashboard.tsx        # EDIT: real balance/profile name; loading/error states
+web-app/src/pages/Transactions.tsx     # NEW: transaction history + beneficiary list
+web-app/src/pages/Security.tsx         # NEW: trusted devices + active sessions
+web-app/src/main.tsx                   # EDIT: route the 2 new pages
+```
+
+**Acceptance check:**
+```bash
+cd web-app && npx vitest run && npx tsc --noEmit && npx eslint . && npx vite build
+# manual: Dashboard balance matches the seeded account; /transactions and /security render real data
+```
+**Depends on:** Phase 28 (the endpoints themselves).
+
+---
+
+### Phase 30 — Real RBAC for `/admin/*` (CLAUDE.md §8 "role-scoped JWT")
+
+**Goal:** Replace the flat `X-Admin-Token` shared-secret check with a proper `analysts` table (the repo's 17th table — a documented exception, same precedent as Phase 28's banking tables not being in the original 16), a `POST /api/v1/admin/login` issuing a disjoint **admin-track JWT** (`kind: "admin"`), and `deps.require_role("admin"|"analyst")` gating every `/admin/*` route — policy/model writes admin-only, reads either role.
+
+**Files:**
+```
+gateway/app/models/analyst.py          # NEW: Analyst (analyst_id, email, password_hash, role)
+gateway/alembic/versions/ab45f6a462bc_phase_30_analysts_table.py   # NEW migration
+gateway/app/services/analyst_auth.py   # NEW: authenticate_analyst (Argon2id, same hashing as customer auth)
+gateway/app/utils/security.py          # EDIT: admin-track JWT issuance/decoding (kind: "admin", separate
+                                       #   claim namespace from the customer-session JWT)
+gateway/app/deps.py                    # EDIT: require_role(*roles) replaces the old shared-secret require_admin
+gateway/app/routers/admin.py           # EDIT: every route now depends on require_role(...) instead of the
+                                       #   X-Admin-Token header check; new POST /admin/login
+gateway/app/schemas/admin.py           # EDIT: AdminLoginRequest/AdminLoginResponse
+gateway/scripts/seed_demo.py           # EDIT: seeds admin@cogniguard.dev (admin) + analyst@cogniguard.dev (analyst)
+bank-dashboard/src/pages/AdminLogin.tsx   # NEW: login page
+bank-dashboard/src/App.tsx · NavBar.tsx · api.ts   # EDIT: sessionStorage JWT, route guard, admin API calls
+                                       #   carry the new JWT instead of X-Admin-Token
+.env.example                           # EDIT: drop the shared VITE_ADMIN_TOKEN (no longer used)
+```
+
+**Acceptance check:**
+```bash
+docker compose exec gateway python -m pytest -q   # 199 passed, 1 skipped
+# live: POST /admin/login (admin@cogniguard.dev) -> 200 + admin JWT; GET /admin/events with it -> 200;
+#   POST /admin/policy as the analyst-role JWT -> 403 (read-only role can't write)
+```
+**Depends on:** Phase 8 (customer JWT pattern to mirror), Phase 11 (`bank-dashboard`).
+
+---
+
 ## 4. API Implementation Reference
 
 All paths prefixed `/api/v1` except the WebSocket. Mirrors PRD §11/§17 and Architecture §5/§6.
@@ -878,6 +1168,7 @@ All paths prefixed `/api/v1` except the WebSocket. Mirrors PRD §11/§17 and Arc
 | POST | `/auth/step-up/verify` | `StepUpVerifyRequest` | `DecisionResponse` (allow+token; sample→quarantine) | 200, 400, 401 | none |
 | POST | `/payment/score` | `PaymentScoreRequest` (+ Bearer) | `PaymentScoreResponse` | 200, 400, 401 | JWT |
 | POST | `/behavior/ingest` | `BehaviorPayload` (+ Bearer) | `{action, reauth?, risk_score, risk_band}` | 200, 400, 401, 409 (nonce reuse) | JWT |
+| POST | `/enroll` | `EnrollRequest` | `EnrollResponse` (`{user_id, progress}`) | 200, 404 | none (demo) |
 | GET | `/risk/session/{id}` | — | `{session_id,risk,band,status}` | 200, 404 | JWT |
 | GET | `/admin/events?band=&user_id=&entity_type=&limit=` | query | `EventOut[]` | 200 | admin |
 | GET | `/admin/users/{id}` | — | `UserDetailOut` | 200, 404 | admin |
@@ -923,6 +1214,7 @@ tests/fixtures/replay_login.json      # a captured signed payload to replay (con
 | `flink-jobs/tests/test_windows.py` | unit | velocity/rolling-sum, zscore, haversine, baseline deviation |
 | `test_feature_reader.py` | unit | Redis-only read (no DB session); cold-start defaults; amount_zscore derivation; known-set membership |
 | `test_scoring.py` | unit | stacked genuine→low / impostor→high; Behavior_Score fed to XGBoost; XGB error→`degraded_mode` + fallback (NFR-4) |
+| `test_identity.py` | unit | per-user distance match; identity-gated Trust; data-driven enrollment (no seeding); enrolled mismatch→very_high + `BEHAVIOR_IDENTITY_MISMATCH`; AE stays active+feeds XGBoost; cold-start unchanged |
 | `test_amplifiers.py` | unit | new-payee(<2h)+amount>80% fires ×1.5; `apply = clamp(base×Π,0,100)`; benign→none |
 | `test_explain.py` | unit | top drivers by \|z\|; phrase map; `std→ε` guard; no SHAP/LIME; within budget |
 | `test_decision.py` | unit | band map; risk×action matrix cells; cold-start very_high→verify (never block); assurance ladder |
@@ -1026,8 +1318,14 @@ P0 ─▶ P1 ─▶ P2 ─▶ P3 ─▶ P4 ─▶ P5 ─▶ P6 ─▶ P7 ─▶ 
 
 P6 ──▶ P13 ──▶ P14 ──▶ P15 ──▶ P17 ──▶ P18 ──▶ P19
         P5 ──────────▶ P16 ───────────┘
+
+P13 ─▶ P20 ─▶ P21 ─▶ P22 ─▶ P23 ─▶ P24 ─▶ P25
+                P8 ───┘       P11 ──┘
+
+P4 ─▶ P26  ◀─ P16        P22 ─▶ P27
+P8 ─▶ P28 ─▶ P29          P8 ─▶ P11 ─▶ P30
 ```
-P10 (behavior-sdk) needs only P2's payload shape and can proceed in parallel once schemas are frozen. P12 (governance) builds on P5/P6/P9. P13–19 (LSTM Autoencoder primary + native Android on-device TFLite) is a separate track off P6: P16's ONNX/TFLite artifacts feed both P15 (server-side AE) and P18 (Android); P19 documents the shipped contracts last.
+P10 (behavior-sdk) needs only P2's payload shape and can proceed in parallel once schemas are frozen. P12 (governance) builds on P5/P6/P9. P13–19 (LSTM Autoencoder primary + native Android on-device TFLite) is a separate track off P6: P16's ONNX/TFLite artifacts feed both P15 (server-side AE) and P18 (Android); P19 documents the shipped contracts last. P20–25 (per-user continuous identity verification) is a separate track off P13's calibration layer: P20's distance scorer feeds P21's enrollment, P21+P8 feed P22's stack wiring, P23 adds the reason code, P24 (also needs P11) surfaces it on every front-end, P25 is the demo rehearsal. P26 (boot correctness) only wires already-built P4/P16 pieces into Compose. P27 only surfaces fields P22 already computed. P28 (banking endpoints, the one user-approved backend exception off P8) feeds P29's web-app UI. P30 (admin RBAC) replaces P8's shared-secret admin check, needs P11's `bank-dashboard` updated too.
 
 ## Appendix B — Consistency Anchors (do not drift)
 - **Repo root** `cogniguard/`, tree exactly per Architecture §9.

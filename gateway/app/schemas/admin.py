@@ -7,6 +7,18 @@ from pydantic import BaseModel, Field
 from .scoring import RiskBand
 
 
+class AdminLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AdminLoginResponse(BaseModel):
+    token: str
+    analyst_id: str
+    role: str
+    full_name: str | None = None
+
+
 class PolicyUpdate(BaseModel):
     scoring_mode: Literal["stacked", "weighted"] = "stacked"
     weights: dict[str, float] = Field(default_factory=dict)
@@ -30,6 +42,9 @@ class EventOut(BaseModel):
     model_version: str | None = None
     latency_ms: int | None = None
     scored_at: str | None = None
+    trust_score: float | None = None
+    behavior_match_score: float | None = None
+    behavior_score_source: str | None = None
 
 
 class UserDetailOut(BaseModel):

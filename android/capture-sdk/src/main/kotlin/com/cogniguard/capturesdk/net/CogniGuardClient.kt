@@ -78,6 +78,14 @@ class CogniGuardClient(private val apiBase: String, private val signingSecret: S
         return request("/api/v1/auth/login", "POST", body)
     }
 
+    /** Step-up verify (Phase 24): OTP/MPIN demo code or a biometric/passkey assertion.
+     * Mirrors `web-app/src/api.ts` `verifyStepUp`. */
+    fun verifyStepUp(challengeId: String, otpOrAssertion: String): ApiResult {
+        val body =
+            JSONObject().put("challenge_id", challengeId).put("otp_or_assertion", otpOrAssertion)
+        return request("/api/v1/auth/step-up/verify", "POST", body)
+    }
+
     fun ingest(token: String, behavior: UnsignedBehaviorPayload): ApiResult =
         request("/api/v1/behavior/ingest", "POST", signBehavior(behavior), token = token)
 

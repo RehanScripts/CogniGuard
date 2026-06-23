@@ -48,7 +48,23 @@ DEFAULT_POLICY: dict[str, Any] = {
     "stepup": {
         "light": ["MPIN", "OTP"],
         "strong": ["FINGERPRINT", "PASSKEY", "VOICE_READBACK"],
+        # Failed step-up attempts allowed before login escalates to block + alert
+        # (PRD §10.1 "if fail -> Blocked"). Admin-tunable like every other policy knob.
+        "max_attempts": 3,
     },
+    # Per-user continuous identity verification (Implementation.md Phase 20-22). All
+    # Trust-Score weights live here, never hardcoded in the scorer (CLAUDE.md invariant 6).
+    # `support` weights (genuineness=AE / device / env) sum to 1 and form the supporting
+    # composite; identity match is the multiplicative anchor over it. `env_penalty` is how
+    # much each anomalous-context flag subtracts from env-consistency.
+    "trust_weights": {
+        "support": {"genuineness": 0.5, "device": 0.3, "env": 0.2},
+        "env_penalty": {"geo_change": 0.4, "new_device": 0.4, "vpn": 0.2},
+    },
+    # Data-driven enrollment: a user is enrolled (identity gate active) only after this
+    # many genuine login/app-open cycles; until then trust = support composite only,
+    # biased to verify, never block (CLAUDE.md invariant 9).
+    "enrollment": {"min_sessions": 10},
     "cooling_off": {"minutes": 30, "reconfirm_channel": "APP_PUSH"},
     "hardening": {"delay_after": 3, "captcha_after": 4, "lock_after": 5, "lock_minutes": 15},
     # Phase 12 drift_monitor breach thresholds (Implementation.md §12) -- PSI/KS on the

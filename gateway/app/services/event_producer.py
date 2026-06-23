@@ -69,10 +69,14 @@ def build_behavior_event(
     session_id: str,
     typing_speed: float = 0.0,
     typing_rhythm: list[float] | None = None,
-    key_latency: float = 0.0,
-    swipe_angle: float = 0.0,
-    touch_pressure: float = 0.0,
-    mouse_velocity: float = 0.0,
+    key_latency_avg: float = 0.0,
+    typing_rhythm_std: float = 0.0,
+    hold_time_avg: float = 0.0,
+    swipe_velocity_norm: float = 0.0,
+    swipe_angle_dev: float = 0.0,
+    touch_pressure_avg: float = 0.0,
+    acceleration_variance: float = 0.0,
+    mouse_velocity_mean: float = 0.0,
     ts: str | None = None,
 ) -> dict:
     return BehaviorEvent(
@@ -80,10 +84,14 @@ def build_behavior_event(
         session_id=session_id,
         typing_speed=typing_speed,
         typing_rhythm=typing_rhythm or [],
-        key_latency=key_latency,
-        swipe_angle=swipe_angle,
-        touch_pressure=touch_pressure,
-        mouse_velocity=mouse_velocity,
+        key_latency_avg=key_latency_avg,
+        typing_rhythm_std=typing_rhythm_std,
+        hold_time_avg=hold_time_avg,
+        swipe_velocity_norm=swipe_velocity_norm,
+        swipe_angle_dev=swipe_angle_dev,
+        touch_pressure_avg=touch_pressure_avg,
+        acceleration_variance=acceleration_variance,
+        mouse_velocity_mean=mouse_velocity_mean,
         ts=ts or _now_iso(),
     ).model_dump()
 
@@ -161,6 +169,9 @@ def build_risk_score_event(
     final_risk_score: float,
     risk_band: str,
     model_version: str,
+    trust_score: float | None = None,
+    behavior_match_score: float | None = None,
+    behavior_score_source: str | None = None,
     ts: str | None = None,
 ) -> dict:
     return RiskScoreEvent(
@@ -172,6 +183,9 @@ def build_risk_score_event(
         final_risk_score=final_risk_score,
         risk_band=risk_band,
         model_version=model_version,
+        trust_score=trust_score,
+        behavior_match_score=behavior_match_score,
+        behavior_score_source=behavior_score_source,
         ts=ts or _now_iso(),
     ).model_dump()
 

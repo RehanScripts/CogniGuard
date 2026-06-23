@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from app.kafka_client import ping as kafka_ping
 from app.main import app
 from app.redis_client import ping as redis_ping
+from app.redis_client import redis_client
 from app.s3_client import ping as s3_ping
 from app.schemas.behavior import ActionBlock, BehaviorPayload, DeviceInfo, KeyEvent, KeystrokeBlock
 from app.services import integrity
@@ -127,6 +128,32 @@ def test_new_payee_high_value_populates_txn_controls_when_flagged(client, userna
                 controls["reconfirm"],
             ]
         )
+
+
+def test_payment_accumulates_into_the_same_ae_sequence_buffer_login_started(client, username):
+    """Phase 15 follow-up: payment now passes `session_id=str(session.session_id)`
+    into `FeatureReadContext`, and login already pushed the first row of that same
+    session's AE buffer (see test_auth_flow.py's equivalent). The two should land in
+    the exact same `behavior:{session_id}:seq` list, not two disjoint ones."""
+    device_fp = f"device-{username}"
+    token = _logged_in_token(client, username, device_fp)
+    if token is None:
+        pytest.skip("login did not return allow with the current model state -- can't get a session")
+
+    from app.utils import security
+
+    claims = security.decode_jwt(token)
+    session_id = claims["session_id"]
+    assert redis_client.llen(f"behavior:{session_id}:seq") == 1
+
+    behavior = _signed_behavior(client, seq=2, device_fp=device_fp, action_type="TRANSFER")
+    r = client.post(
+        "/api/v1/payment/score",
+        json={"amount": 500, "transfer_type": "UPI", "channel": "web", "behavior": behavior},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert redis_client.llen(f"behavior:{session_id}:seq") == 2
 
 
 def test_payment_requires_bearer_auth(client):

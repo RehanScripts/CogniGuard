@@ -19,7 +19,7 @@ from redis import Redis
 
 from training.train_isolation_forest import BEHAVIOR_COLUMNS
 
-from ..scoring import calibration
+from ..scoring import calibration, identity
 from ..scoring.autoencoder import MIN_SEQ, N_FEATURES, SEQ_LEN
 from ..schemas.behavior import BehaviorPayload
 from ..schemas.features import (
@@ -256,6 +256,11 @@ def read_bundle(user_id: str, payload: FeatureReadContext, *, redis: Redis) -> F
         payload, behavior_features, user_id=user_id, redis=redis
     )
 
+    # Per-user identity baseline (Phase 20-22) -- written only by enrollment.finalize().
+    # Its presence is what flips `enrolled` on and activates the identity Trust anchor.
+    identity_raw = redis.get(identity.identity_baseline_key(user_id))
+    identity_baseline = identity.parse_identity_baseline(identity_raw) if identity_raw else None
+
     return FeatureBundle(
         user_id=user_id,
         behavior=behavior_features,
@@ -294,4 +299,6 @@ def read_bundle(user_id: str, payload: FeatureReadContext, *, redis: Redis) -> F
             behavior_score=0.0,  # Isolation Forest output, filled in by scoring (Phase 6)
         ),
         cold_start=cold_start,
+        identity_baseline=identity_baseline,
+        enrolled=identity_baseline is not None,
     )

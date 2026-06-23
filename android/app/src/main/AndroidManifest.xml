@@ -1,10 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Real device biometric step-up for the `verify` action (Phase 24). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <application
         android:label="@string/app_name"
-        android:theme="@style/Theme.CogniGuardDemo">
+        android:theme="@style/Theme.CogniGuardDemo"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".LoginActivity"
             android:exported="true">

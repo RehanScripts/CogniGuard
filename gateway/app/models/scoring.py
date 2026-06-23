@@ -32,6 +32,13 @@ class RiskScore(Base):
     risk_band: Mapped[str | None] = mapped_column(String(12))  # low|medium|high|very_high
     model_version: Mapped[str | None] = mapped_column(String(64))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    # Continuous identity verification (Phase 20-22), persisted starting Phase 27 so the
+    # SOC dashboard's historical/case views carry the same trust fields the live feed
+    # already showed -- no new calculation, just persisting `ScoreResult` fields that were
+    # previously computed every request and then discarded.
+    trust_score: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    behavior_match_score: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    behavior_score_source: Mapped[str | None] = mapped_column(String(16))  # ae|if|fallback
     # Phase 12 challenger/shadow scoring (Implementation.md §12): True for a row produced
     # by scoring/shadow.py's challenger run alongside the champion -- never acted on, never
     # broadcast to the live SOC feed, excluded from /admin/events by default.

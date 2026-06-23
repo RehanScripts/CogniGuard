@@ -9,6 +9,7 @@ import com.cogniguard.capturesdk.MotionCapture
 import com.cogniguard.capturesdk.TouchCapture
 import com.cogniguard.capturesdk.edge.MobileFeatures
 import com.cogniguard.capturesdk.fingerprint.DeviceFingerprint
+import com.cogniguard.capturesdk.ml.AeSequenceScorer
 import com.cogniguard.capturesdk.model.ActionBlock
 import com.cogniguard.capturesdk.model.ContextBlock
 import com.cogniguard.capturesdk.model.UnsignedBehaviorPayload
@@ -30,6 +31,9 @@ class TransferActivity : AppCompatActivity() {
     private lateinit var touchCapture: TouchCapture
     private lateinit var motionCapture: MotionCapture
     private var sessionToken: String? = null
+    private val aeScorerLazy = lazy { AeSequenceScorer(this) }
+    private val aeScorer by aeScorerLazy
+    private var aeModelVersion: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,7 +69,7 @@ class TransferActivity : AppCompatActivity() {
 
             CoroutineScope(Dispatchers.Main).launch {
                 try {
-                    val behavior = buildBehaviorPayload(action = "TRANSFER")
+                    val behavior = withContext(Dispatchers.IO) { buildBehaviorPayload(action = "TRANSFER") }
                     val result =
                         withContext(Dispatchers.IO) {
                             client.scorePayment(
@@ -101,18 +105,22 @@ class TransferActivity : AppCompatActivity() {
             }
     }
 
-    private fun buildBehaviorPayload(action: String): UnsignedBehaviorPayload {
+    private suspend fun buildBehaviorPayload(action: String): UnsignedBehaviorPayload {
         val device = DeviceFingerprint.compute(this)
         val derivedFeatures =
             MobileFeatures.extract(swipes = touchCapture.drain(), motionSamples = motionCapture.drain())
+        if (aeModelVersion == null) {
+            aeModelVersion = runCatching { client.getAeModel().body.optString("version") }.getOrNull()
+        }
+        val aeReconError = runCatching { aeScorer.score(derivedFeatures) }.getOrNull()
         return UnsignedBehaviorPayload(
             channel = "mobile",
             source = "mobile_edge",
             device = device,
             action = ActionBlock(type = action),
             derivedFeatures = derivedFeatures.takeIf { it.isNotEmpty() },
-            aeReconError = null, // wired once AutoencoderTFLite is loaded with a real model.tflite asset
-            aeModelVersion = null,
+            aeReconError = aeReconError,
+            aeModelVersion = if (aeReconError != null) aeModelVersion else null,
             context = ContextBlock(submittedAt = Instant.now().toString(), page = "transfer"),
         )
     }
@@ -120,6 +128,7 @@ class TransferActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         motionCapture.stop()
+        if (aeScorerLazy.isInitialized()) aeScorer.close()
     }
 
     companion object {

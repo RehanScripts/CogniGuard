@@ -177,6 +177,7 @@ def score_payment(
         device_id=str(device.device_id),
         amount=req.amount,
         beneficiary_id=str(beneficiary.beneficiary_id) if beneficiary else None,
+        session_id=str(session.session_id),
     )
     bundle = feature_reader.read_bundle(str(user.user_id), ctx, redis=redis)
     is_new_payee = bundle.txn.is_new_payee
@@ -276,6 +277,10 @@ def score_payment(
         degraded_mode=result.degraded_mode,
         model_version=result.model_version,
         base_score=result.base_score,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
+        device_trust=result.device_score,
     )
 
     _write_session_risk(
@@ -317,6 +322,9 @@ def score_payment(
         final_risk_score=result.final_risk_score,
         risk_band=result.risk_band,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
     )
     background_tasks.add_task(
         event_producer.emit_decision,

@@ -39,6 +39,9 @@ def persist_risk_score(
         model_version=result.model_version,
         latency_ms=result.latency_ms,
         is_shadow=is_shadow,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
     )
     db.add(row)
     db.commit()

@@ -2,9 +2,17 @@ import { CogniGuard } from "@cogniguard/behavior-sdk";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { API_BASE, type Hardening, login, setSessionToken } from "../api";
+import {
+  API_BASE,
+  type DecisionResponse,
+  type Hardening,
+  login,
+  setSessionToken,
+} from "../api";
+import CalibrationBanner from "../components/CalibrationBanner";
 import ChannelSwitcher from "../components/ChannelSwitcher";
 import ConsentToggle from "../components/ConsentToggle";
+import TrustBadge from "../components/TrustBadge";
 
 // Dev-only demo value mirroring the gateway's JWT_SECRET (see PROGRESS.md's
 // documented known-gap note on behavior-sdk's signing scheme) -- accepted as a
@@ -18,6 +26,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [hardening, setHardening] = useState<Hardening | null>(null);
+  const [lastResult, setLastResult] = useState<DecisionResponse | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -36,10 +45,21 @@ export default function Login() {
     try {
       const behavior = await CogniGuard.collect("LOGIN");
       const { body } = await login(username, password, behavior);
+      setLastResult(body);
 
+      const trust = {
+        trustScore: body.trust_score,
+        behaviorMatch: body.behavior_match_score,
+        enrollment: body.enrollment,
+      };
       if (body.action === "verify") {
         navigate("/step-up", {
-          state: { challenge: body.step_up, requiredFactors: body.required_factors, username },
+          state: {
+            challenge: body.step_up,
+            requiredFactors: body.required_factors,
+            username,
+            ...trust,
+          },
         });
         return;
       }
@@ -51,7 +71,7 @@ export default function Login() {
       if (body.session_token) {
         setSessionToken(body.session_token);
       }
-      navigate("/dashboard", { state: { username } });
+      navigate("/dashboard", { state: { username, ...trust } });
     } catch {
       setError("Could not reach CogniGuard. Please try again.");
     } finally {
@@ -104,6 +124,15 @@ export default function Login() {
           {error}
           {hardening && ` (${hardening.action.toLowerCase()}, retry after ${hardening.retry_after_s}s)`}
         </p>
+      )}
+      {lastResult && (
+        <>
+          <CalibrationBanner progress={lastResult.enrollment} />
+          <TrustBadge
+            trustScore={lastResult.trust_score}
+            behaviorMatch={lastResult.behavior_match_score}
+          />
+        </>
       )}
       <div className="mt-6 border-t pt-4">
         <ConsentToggle username={username} />

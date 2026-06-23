@@ -1,6 +1,7 @@
 """Admin router (Implementation.md Phase 8 subset + Phase 9 `/cases` + Phase 12
-`/models`+`/drift`): `/events`, `/users/{id}`, `/policy` GET/PUT, `/cases` GET/PATCH,
-`/models` GET/promote/rollback, `/drift` GET. All behind `deps.require_admin`.
+`/models`+`/drift`; Phase 30 RBAC): `/login` is open; every other route requires the
+admin-track JWT (`deps.require_role`) -- `admin` for policy/model writes, either
+`admin` or `analyst` for read/case-triage routes.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ from ..models.scoring import Decision, RiskScore
 from ..models.user import User
 from ..scoring.registry import Registry
 from ..schemas.admin import (
+    AdminLoginRequest,
+    AdminLoginResponse,
     CaseOut,
     CaseUpdate,
     DriftReportOut,
@@ -33,10 +36,21 @@ from ..schemas.admin import (
     RollbackRequest,
     UserDetailOut,
 )
-from ..services import case_mgmt
+from ..services import analyst_auth, case_mgmt
 from ..services.policy import POLICY_REDIS_KEY, active_policy
 
-router = APIRouter(dependencies=[Depends(deps.require_admin)])
+router = APIRouter()
+
+_any_role = Depends(deps.require_role("admin", "analyst"))
+_admin_only = Depends(deps.require_role("admin"))
+
+
+@router.post("/login", response_model=AdminLoginResponse)
+def login(req: AdminLoginRequest, db: DbSession = Depends(deps.get_db)) -> AdminLoginResponse:
+    result = analyst_auth.login(db, req)
+    if result is None:
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    return result
 
 
 def _event_out(row: RiskScore, action: str | None) -> EventOut:
@@ -51,10 +65,13 @@ def _event_out(row: RiskScore, action: str | None) -> EventOut:
         model_version=row.model_version,
         latency_ms=row.latency_ms,
         scored_at=row.scored_at.isoformat() if row.scored_at else None,
+        trust_score=row.trust_score,
+        behavior_match_score=row.behavior_match_score,
+        behavior_score_source=row.behavior_score_source,
     )
 
 
-@router.get("/events", response_model=list[EventOut])
+@router.get("/events", response_model=list[EventOut], dependencies=[_any_role])
 def list_events(
     band: str | None = None,
     user_id: str | None = None,
@@ -90,7 +107,7 @@ def list_events(
     return [_event_out(r, decisions.get(r.entity_id)) for r in rows]
 
 
-@router.get("/users/{user_id}", response_model=UserDetailOut)
+@router.get("/users/{user_id}", response_model=UserDetailOut, dependencies=[_any_role])
 def get_user_detail(user_id: str, db: DbSession = Depends(deps.get_db)) -> UserDetailOut:
     try:
         uid = uuid.UUID(user_id)
@@ -134,12 +151,12 @@ def get_user_detail(user_id: str, db: DbSession = Depends(deps.get_db)) -> UserD
     )
 
 
-@router.get("/policy")
+@router.get("/policy", dependencies=[_any_role])
 def get_policy(redis: Redis = Depends(deps.get_redis)) -> dict:
     return {"active_policy": active_policy(redis=redis)}
 
 
-@router.put("/policy")
+@router.put("/policy", dependencies=[_admin_only])
 def put_policy(update: PolicyUpdate, redis: Redis = Depends(deps.get_redis)) -> dict:
     redis.set(POLICY_REDIS_KEY, update.model_dump_json())
     return {"active_policy": active_policy(redis=redis)}
@@ -159,7 +176,7 @@ def _case_out(case: Case) -> CaseOut:
     )
 
 
-@router.get("/cases", response_model=list[CaseOut])
+@router.get("/cases", response_model=list[CaseOut], dependencies=[_any_role])
 def list_cases(
     status: str | None = None,
     user_id: str | None = None,
@@ -174,7 +191,7 @@ def list_cases(
     return [_case_out(c) for c in db.scalars(stmt).all()]
 
 
-@router.patch("/cases/{case_id}", response_model=CaseOut)
+@router.patch("/cases/{case_id}", response_model=CaseOut, dependencies=[_any_role])
 def patch_case(case_id: str, update: CaseUpdate, db: DbSession = Depends(deps.get_db)) -> CaseOut:
     try:
         case = case_mgmt.update_case(db, case_id, update)
@@ -205,12 +222,12 @@ def _models_by_name(db: DbSession, *, model_name: str | None = None) -> list[Mod
     return [ModelOut(model_name=name, versions=versions) for name, versions in grouped.items()]
 
 
-@router.get("/models", response_model=list[ModelOut])
+@router.get("/models", response_model=list[ModelOut], dependencies=[_any_role])
 def list_models(db: DbSession = Depends(deps.get_db)) -> list[ModelOut]:
     return _models_by_name(db)
 
 
-@router.get("/models/{model_name}", response_model=ModelOut)
+@router.get("/models/{model_name}", response_model=ModelOut, dependencies=[_any_role])
 def get_model(model_name: str, db: DbSession = Depends(deps.get_db)) -> ModelOut:
     found = _models_by_name(db, model_name=model_name)
     if not found:
@@ -218,7 +235,7 @@ def get_model(model_name: str, db: DbSession = Depends(deps.get_db)) -> ModelOut
     return found[0]
 
 
-@router.post("/models/{model_name}/promote", response_model=ModelOut)
+@router.post("/models/{model_name}/promote", response_model=ModelOut, dependencies=[_admin_only])
 def promote_model(
     model_name: str,
     body: PromoteRequest,
@@ -235,7 +252,7 @@ def promote_model(
     return _models_by_name(db, model_name=model_name)[0]
 
 
-@router.post("/models/{model_name}/rollback", response_model=ModelOut)
+@router.post("/models/{model_name}/rollback", response_model=ModelOut, dependencies=[_admin_only])
 def rollback_model(
     model_name: str,
     body: RollbackRequest,
@@ -252,7 +269,7 @@ def rollback_model(
     return _models_by_name(db, model_name=model_name)[0]
 
 
-@router.get("/drift", response_model=DriftReportOut)
+@router.get("/drift", response_model=DriftReportOut, dependencies=[_any_role])
 def get_drift(
     db: DbSession = Depends(deps.get_db), redis: Redis = Depends(deps.get_redis)
 ) -> DriftReportOut:

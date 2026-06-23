@@ -43,7 +43,16 @@ from ..schemas.scoring import ReasonCode
 from ..scoring import shadow, stack
 from ..scoring.registry import Registry
 from ..utils import fingerprint, security
-from . import audit, case_mgmt, consent, event_producer, feature_reader, hardening, integrity
+from . import (
+    audit,
+    case_mgmt,
+    consent,
+    enrollment,
+    event_producer,
+    feature_reader,
+    hardening,
+    integrity,
+)
 from .adaptive_auth import select_factor
 from .decision_engine import decide
 from .policy import active_policy
@@ -199,17 +208,23 @@ def login(
         is_emulator=req.behavior.device.is_emulator,
     )
 
-    ctx = FeatureReadContext(behavior=req.behavior, device_id=str(device.device_id))
+    ctx = FeatureReadContext(
+        behavior=req.behavior, device_id=str(device.device_id), session_id=kafka_session_id
+    )
     bundle = feature_reader.read_bundle(str(user.user_id), ctx, redis=redis)
     behavior_features = bundle.behavior
     event_producer.emit_behavior_event(
         user_id=str(user.user_id),
         session_id=kafka_session_id,
         typing_speed=behavior_features.typing_speed,
-        key_latency=behavior_features.key_latency_avg,
-        swipe_angle=behavior_features.swipe_angle_dev,
-        touch_pressure=behavior_features.touch_pressure_avg,
-        mouse_velocity=behavior_features.mouse_velocity_mean,
+        key_latency_avg=behavior_features.key_latency_avg,
+        typing_rhythm_std=behavior_features.typing_rhythm_std,
+        hold_time_avg=behavior_features.hold_time_avg,
+        swipe_velocity_norm=behavior_features.swipe_velocity_norm,
+        swipe_angle_dev=behavior_features.swipe_angle_dev,
+        touch_pressure_avg=behavior_features.touch_pressure_avg,
+        acceleration_variance=behavior_features.acceleration_variance,
+        mouse_velocity_mean=behavior_features.mouse_velocity_mean,
     )
     result = stack.score(bundle, policy=policy, registry=registry, redis=redis)
 
@@ -224,6 +239,26 @@ def login(
     if decision.action == "verify":
         step_up = select_factor(decision.assurance or "light", None, policy["stepup"])
 
+    # Data-driven enrollment (Phase 21): while this consented user isn't yet enrolled,
+    # capture each genuine (allow/verify) login as one enrollment session; the cycle that
+    # reaches `required` auto-finalizes the per-user baseline + calibration. Nothing is
+    # seeded -- every parameter is derived from these captured sessions.
+    enroll_progress = None
+    if consent.is_capture_allowed(user):
+        required = enrollment.min_sessions(policy)
+        if enrollment.is_enrolled(str(user.user_id), redis=redis) or decision.action == "block":
+            enroll_progress = enrollment.progress(
+                str(user.user_id), required=required, redis=redis
+            )
+        else:
+            enroll_progress = enrollment.record(
+                str(user.user_id),
+                bundle.behavior_vector(),
+                result.ae_recon_error,
+                required=required,
+                redis=redis,
+            )
+
     response = DecisionResponse(
         action=decision.action,
         entity_type="login",
@@ -235,11 +270,17 @@ def login(
         step_up=step_up,
         degraded_mode=result.degraded_mode,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
+        device_trust=result.device_score,
+        enrollment=enroll_progress,
     )
 
     session_row: SessionModel | None = None
     if decision.action == "allow":
         session_row = SessionModel(
+            session_id=uuid.UUID(kafka_session_id),
             user_id=user.user_id,
             device_id=device.device_id,
             ip_address=ip,
@@ -278,6 +319,7 @@ def login(
                     "final_risk_score": result.final_risk_score,
                     "challenge_type": step_up.challenge_type,
                     "assurance": step_up.assurance,
+                    "kafka_session_id": kafka_session_id,
                 }
             ),
             ex=300,
@@ -349,6 +391,9 @@ def login(
         final_risk_score=result.final_risk_score,
         risk_band=result.risk_band,
         model_version=result.model_version,
+        trust_score=result.trust_score,
+        behavior_match_score=result.behavior_match_score,
+        behavior_score_source=result.behavior_score_source,
     )
     background_tasks.add_task(
         event_producer.emit_decision,
@@ -373,7 +418,11 @@ def login(
 
 
 def verify_step_up(
-    db: DbSession, redis: Redis, req: StepUpVerifyRequest
+    db: DbSession,
+    redis: Redis,
+    req: StepUpVerifyRequest,
+    *,
+    background_tasks: BackgroundTasks,
 ) -> tuple[int, DecisionResponse]:
     raw = redis.get(_k_stepup(req.challenge_id))
     if raw is None:
@@ -386,14 +435,39 @@ def verify_step_up(
     passed = (req.otp_or_assertion == "123456") if is_demo_otp else bool(req.otp_or_assertion)
 
     if not passed:
+        attempts = (challenge.attempts if challenge is not None else 0) + 1
         if challenge is not None:
-            challenge.attempts += 1
+            challenge.attempts = attempts
+        max_attempts = active_policy(redis=redis)["stepup"].get("max_attempts", 3)
+
+        # Exhausted retries -> escalate to block + alert (PRD §10.1 "if fail -> Blocked").
+        # Consume the step-up blob so the challenge can't be reused, mark it failed, and
+        # open a case the same way the login/payment block paths do.
+        if attempts >= max_attempts:
+            if challenge is not None:
+                challenge.status = "failed"
+                challenge.resolved_at = _now()
+            db.commit()
+            redis.delete(_k_stepup(req.challenge_id))
+            background_tasks.add_task(
+                case_mgmt.maybe_open_case,
+                db,
+                user_id=uuid.UUID(state["user_id"]),
+                transaction_id=None,
+                risk_band="very_high",
+                action="block",
+                reason_codes=[{"code": "STEP_UP_EXHAUSTED"}],
+            )
+            return 401, _reject("block", reason_code="STEP_UP_EXHAUSTED", hardening_action=None)
+
         db.commit()
         return 401, _reject("verify", reason_code="STEP_UP_FAILED", hardening_action=None)
 
     user_id = uuid.UUID(state["user_id"])
     device_id = uuid.UUID(state["device_id"])
+    kafka_session_id = state.get("kafka_session_id")
     session_row = SessionModel(
+        session_id=uuid.UUID(kafka_session_id) if kafka_session_id else None,
         user_id=user_id,
         device_id=device_id,
         ip_address=state["ip"],

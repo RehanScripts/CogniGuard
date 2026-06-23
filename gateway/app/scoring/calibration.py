@@ -67,6 +67,15 @@ def calibrate_ae(recon_error: float, params: CalibrationParams) -> float:
     return _calibrate(recon_error, params)
 
 
+def calibrate_distance(distance: float, params: CalibrationParams) -> float:
+    """Per-user identity-distance (robust-z RMS, `scoring/identity.py`) -> identity
+    anomaly [0,1]. Higher distance == less like the enrolled user == more anomalous, so
+    -- exactly like `calibrate_ae` -- no sign flip is needed. A public wrapper over the
+    shared robust-z -> logistic transform so the identity scorer reuses this calibration
+    layer without reaching into a private symbol."""
+    return _calibrate(distance, params)
+
+
 def calibrate_if(decision_function_raw: float, params: CalibrationParams) -> float:
     """Isolation Forest's raw `decision_function` output (higher == more normal) ->
     Behavior_Score [0,1] in the *same* polarity as `calibrate_ae`, for Phase 15's

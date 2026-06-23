@@ -14,6 +14,8 @@ this module's concern.
 
 from __future__ import annotations
 
+from typing import Mapping
+
 from ..schemas.features import FeatureBundle
 from ..schemas.scoring import ReasonCode
 
@@ -97,4 +99,25 @@ def ae_anomaly_reason(ae_recon_error: float | None, bscore: float) -> ReasonCode
         code="BEHAVIOR_AE_ANOMALY",
         detail="Behavioral sequence reconstruction error exceeds the calibrated threshold",
         sigma=round(bscore, 2),
+    )
+
+
+def identity_reason(
+    behavior_match: float | None, thresholds: Mapping[str, float]
+) -> ReasonCode | None:
+    """Per-user identity verification (Implementation.md Phase 20-23). Fires only for an
+    *enrolled* user (`behavior_match is not None`) whose live behavior is a weak match to
+    their OWN enrolled baseline -- i.e. the match falls below the band-equivalent of the
+    medium risk boundary (`100 - medium_max`). This is the signal that catches Ojas using
+    Rehan's credentials: compared to *Rehan's* baseline, the match is low. It never tries
+    to identify who the user actually is (verification, not identification)."""
+    if behavior_match is None:
+        return None
+    match_floor = 100.0 - float(thresholds.get("medium_max", 60))
+    if behavior_match >= match_floor:
+        return None
+    return ReasonCode(
+        code="BEHAVIOR_IDENTITY_MISMATCH",
+        detail="Behavior does not match the enrolled profile",
+        sigma=round(behavior_match, 1),
     )

@@ -11,13 +11,13 @@ from __future__ import annotations
 import uuid
 
 import jwt as pyjwt
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis import Redis
 from sqlalchemy.orm import Session as DbSession
 
-from .config import settings
 from .db import get_db
+from .models.analyst import Analyst
 from .models.session import Session as SessionModel
 from .models.user import User
 from .redis_client import redis_client
@@ -69,9 +69,48 @@ def get_current_user(
     return user, session
 
 
-def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
-    """Demo stand-in -- no admin-role column or admin user model exists yet (out of
-    scope for Phase 8). Ringfences the /admin/* surface behind a shared secret rather
-    than leaving it open."""
-    if x_admin_token != settings.jwt_secret:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin token required")
+def get_current_analyst(
+    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+    db: DbSession = Depends(get_db),
+) -> Analyst:
+    """Decodes the admin-track JWT (`kind: admin`, issued by `issue_admin_jwt`) --
+    a separate token track from `get_current_user` so a customer session can never
+    satisfy an admin/analyst endpoint (Phase 30, CLAUDE.md §8)."""
+    try:
+        claims = security.decode_jwt(credentials.credentials)
+    except pyjwt.PyJWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid or expired token"
+        )
+
+    if claims.get("kind") != "admin":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not an admin token")
+
+    jwt_id = claims.get("jti")
+    if not jwt_id or security.is_revoked(jwt_id):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="session revoked")
+
+    try:
+        analyst_id = uuid.UUID(claims["sub"])
+    except (KeyError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="malformed token claims"
+        )
+
+    analyst = db.get(Analyst, analyst_id)
+    if analyst is None or analyst.status != "active":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="analyst not active")
+
+    return analyst
+
+
+def require_role(*roles: str):
+    """Dependency factory -- `Depends(require_role("admin"))` for admin-only routes,
+    `Depends(require_role("admin", "analyst"))` for routes either role may use."""
+
+    def _check(analyst: Analyst = Depends(get_current_analyst)) -> Analyst:
+        if analyst.role not in roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
+        return analyst
+
+    return _check

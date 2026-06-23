@@ -56,6 +56,24 @@ def decode_jwt(token: str) -> dict:
     return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_alg])
 
 
+def issue_admin_jwt(analyst_id: str, role: str) -> tuple[str, str]:
+    """Separate token track from `issue_jwt` (customer sessions) -- `kind: admin`
+    distinguishes admin/analyst tokens so a customer JWT can never satisfy
+    `deps.require_role` and vice versa (Phase 30, CLAUDE.md §8 role-scoped JWT)."""
+    jwt_id = str(uuid.uuid4())
+    now = dt.datetime.now(dt.timezone.utc)
+    payload = {
+        "sub": str(analyst_id),
+        "role": role,
+        "kind": "admin",
+        "jti": jwt_id,
+        "iat": now,
+        "exp": now + dt.timedelta(minutes=settings.admin_jwt_ttl_minutes),
+    }
+    token = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_alg)
+    return token, jwt_id
+
+
 def revoke(jwt_id: str) -> None:
     redis_client.set(_denylist_key(jwt_id), "1", ex=settings.jwt_ttl_minutes * 60)
 
