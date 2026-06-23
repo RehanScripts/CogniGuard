@@ -186,24 +186,38 @@ def _resolve_ae(
 ) -> tuple[list[list[float]] | None, list[bool] | None, float | None, bool]:
     """(behavior_sequence, behavior_sequence_mask, ae_recon_error, ae_cold_start).
     Web assembles the rolling window for Phase 15's server-side AE; mobile already
-    carries its own device-computed reconstruction error and skips assembly entirely
-    (Implementation.md Phase 14)."""
+    carries its own device-computed reconstruction error (Implementation.md Phase 14)
+    and never uses the server-side window for inference.
+
+    Both channels gate AE-as-primary behind the **same** `MIN_SEQ` warm-up: the first
+    few events of a session route to the Isolation Forest shadow score and bias to
+    `verify`, never letting a sparse early window drive a `block` (CLAUDE.md invariant
+    9). For mobile this matters because a single login event produces only a sparse
+    on-device window (no swipe/touch/motion yet), whose raw reconstruction error sits
+    far outside the dense population calibration and would otherwise saturate
+    Behavior_Score to 1.0. The per-session ring buffer is tracked for mobile purely to
+    count real rows; the assembled sequence is discarded (the device's `ae_recon_error`
+    is the AE signal, calibrated server-side once warm)."""
     has_calibration = _has_calibration(user_id, redis=redis)
 
-    if payload.behavior.channel == "mobile":
-        ae_recon_error = payload.behavior.ae_recon_error
-        ae_cold_start = ae_recon_error is None or not has_calibration
-        return None, None, ae_recon_error, ae_cold_start
-
     if not payload.session_id:
-        # No caller passes session_id yet (Phase 15's job) -- no buffer to build.
-        return None, None, None, True
+        # No session to count real rows against -> cold-start, bias to verify (CLAUDE.md
+        # §6.9). The live login/payment/behavior flows always pass a session_id; this
+        # guards only direct/test callers that don't.
+        return None, None, payload.behavior.ae_recon_error, True
 
     vector = [getattr(behavior_features, name) for name in BEHAVIOR_COLUMNS]
     behavior_sequence, real_count = _push_and_read_sequence(payload.session_id, vector, redis=redis)
     pad_count = SEQ_LEN - real_count
     behavior_sequence_mask = [False] * max(pad_count, 0) + [True] * min(real_count, SEQ_LEN)
     ae_cold_start = real_count < MIN_SEQ or not has_calibration
+
+    if payload.behavior.channel == "mobile":
+        # AE ran on-device; the server-side window above is only a row counter for the
+        # MIN_SEQ warm-up, so hand back the device's recon error with no assembled
+        # sequence (stack.py reads `ae_recon_error` directly for mobile).
+        return None, None, payload.behavior.ae_recon_error, ae_cold_start
+
     return behavior_sequence, behavior_sequence_mask, None, ae_cold_start
 
 

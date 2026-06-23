@@ -33,14 +33,14 @@ export default function Policy() {
       <h1 className="text-xl font-semibold">Active policy</h1>
       <p className="text-sm text-gray-500">Scoring mode: {policy.scoring_mode}</p>
 
-      <div className="rounded border p-3">
+      <div className="rounded-lg border bg-white p-3 shadow-sm">
         <h2 className="mb-2 text-sm font-medium text-gray-600">Thresholds</h2>
         {Object.entries(policy.thresholds).map(([key, value]) => (
           <label key={key} className="mb-2 flex items-center justify-between text-sm">
             {key}
             <input
               type="number"
-              className="w-24 rounded border px-2 py-1"
+              className="w-24 rounded border px-2 py-1 focus:border-cbi-primary focus:outline-none"
               value={value}
               onChange={(e) => setThreshold(key, Number(e.target.value))}
             />
@@ -48,7 +48,7 @@ export default function Policy() {
         ))}
       </div>
 
-      <div className="rounded border p-3">
+      <div className="rounded-lg border bg-white p-3 shadow-sm">
         <h2 className="mb-2 text-sm font-medium text-gray-600">Amplifiers</h2>
         {Object.entries(policy.amplifiers).map(([key, value]) => (
           <div key={key} className="flex items-center justify-between text-sm">
@@ -60,7 +60,7 @@ export default function Policy() {
 
       <button
         type="button"
-        className="rounded bg-blue-600 px-3 py-2 text-sm text-white"
+        className="rounded bg-cbi-primary px-3 py-2 text-sm text-white hover:bg-cbi-primary-dark"
         onClick={() => void save()}
       >
         Save policy

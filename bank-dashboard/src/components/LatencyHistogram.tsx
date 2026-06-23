@@ -34,7 +34,7 @@ export default function LatencyHistogram({ latenciesMs, budgetMs }: LatencyHisto
             <XAxis dataKey="bucket" />
             <YAxis allowDecimals={false} />
             <Tooltip />
-            <Bar dataKey="count" fill="#0891b2" />
+            <Bar dataKey="count" fill="#125A9C" />
           </BarChart>
         </ResponsiveContainer>
       </div>

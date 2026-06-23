@@ -82,19 +82,19 @@ export default function Live() {
         <span className="text-sm text-gray-500">WS: {wsStatus}</span>
       </div>
       <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2 rounded border p-3">
+        <div className="col-span-2 rounded-lg border bg-white p-3 shadow-sm">
           <EventTable rows={rows} />
         </div>
         <div className="space-y-4">
-          <div className="rounded border p-3">
+          <div className="rounded-lg border bg-white p-3 shadow-sm">
             <h2 className="mb-2 text-sm font-medium text-gray-600">Identity & Trust</h2>
             <TrustPanel latest={latestRisk} />
           </div>
-          <div className="rounded border p-3">
+          <div className="rounded-lg border bg-white p-3 shadow-sm">
             <h2 className="mb-2 text-sm font-medium text-gray-600">Band distribution</h2>
             <BandDistribution rows={rows} />
           </div>
-          <div className="rounded border p-3">
+          <div className="rounded-lg border bg-white p-3 shadow-sm">
             <h2 className="mb-2 text-sm font-medium text-gray-600">Alerts</h2>
             <AlertPanel rows={rows} />
           </div>

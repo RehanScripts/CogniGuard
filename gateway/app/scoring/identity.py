@@ -124,7 +124,21 @@ def identity_distance(vector: Sequence[float], baseline: IdentityBaseline) -> fl
         if stat is None:
             continue
         median, mad = stat
-        z = (x - median) / (MAD_TO_STD * mad + EPS)
+        scale = MAD_TO_STD * mad
+        if scale < EPS:
+            # Degenerate dim: enrollment observed no spread here, so there is no robust-z
+            # denominator. A constant-valued feature must NOT dominate the distance to
+            # infinity on any live deviation -- that's the bug that false-blocked genuine
+            # logins against a synthetic baseline carrying `mad=0` (e.g. hold_time always
+            # 80ms). If the dim is also centred at 0 it carries no identity information at
+            # all (a web-enrolled baseline's mobile-only swipe/touch dims) -> skip it,
+            # rather than let a nonzero live value explode the distance on a pure channel
+            # difference. Otherwise fall back to a magnitude-relative scale (mirroring
+            # `fit_distance_calibration`'s degenerate-scale guard) for a bounded z.
+            if abs(median) < EPS:
+                continue
+            scale = abs(median) * 0.25
+        z = (x - median) / scale
         squares.append(z * z)
     if not squares:
         return 0.0

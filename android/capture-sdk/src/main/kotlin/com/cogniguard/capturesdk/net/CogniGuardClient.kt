@@ -22,8 +22,9 @@ import java.net.URL
  */
 class CogniGuardClient(private val apiBase: String, private val signingSecret: String) {
     data class ApiResult(val status: Int, val body: JSONObject)
+    data class ApiArrayResult(val status: Int, val body: JSONArray)
 
-    private fun request(path: String, method: String, body: JSONObject?, token: String? = null): ApiResult {
+    private fun requestRaw(path: String, method: String, body: JSONObject?, token: String? = null): Pair<Int, String> {
         val url = URL("$apiBase$path")
         val conn = url.openConnection() as HttpURLConnection
         try {
@@ -38,10 +39,25 @@ class CogniGuardClient(private val apiBase: String, private val signingSecret: S
             val status = conn.responseCode
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: "{}"
-            return ApiResult(status, JSONObject(text))
+            return status to text
         } finally {
             conn.disconnect()
         }
+    }
+
+    private fun request(path: String, method: String, body: JSONObject?, token: String? = null): ApiResult {
+        val (status, text) = requestRaw(path, method, body, token)
+        return ApiResult(status, JSONObject(text))
+    }
+
+    /** GET endpoints that return a JSON array body (the `/api/v1/banking/*` list
+     * endpoints) rather than an object -- mirrors `web-app/src/api.ts`'s array-typed
+     * `ApiResult<T[]>` calls. */
+    private fun requestArray(path: String, token: String? = null): ApiArrayResult {
+        val (status, text) = requestRaw(path, "GET", null, token)
+        val trimmed = text.trim()
+        val arr = if (trimmed.startsWith("[")) JSONArray(trimmed) else JSONArray()
+        return ApiArrayResult(status, arr)
     }
 
     fun fetchNonce(): String {
@@ -109,6 +125,21 @@ class CogniGuardClient(private val apiBase: String, private val signingSecret: S
     fun getAeModel(): ApiResult = request("/api/v1/mobile/ae-model", "GET", null)
 
     fun getAeCalib(userId: String): ApiResult = request("/api/v1/mobile/ae-calib/$userId", "GET", null)
+
+    // Phase 28 customer banking read endpoints (gateway/app/schemas/banking.py) -- the
+    // same risk-free, PII-masked surface `web-app/src/api.ts` reads for Dashboard/
+    // Transactions/Security. Mirrors it field-for-field; no risk/trust data here.
+    fun getProfile(token: String): ApiResult = request("/api/v1/banking/profile", "GET", null, token = token)
+
+    fun listAccounts(token: String): ApiArrayResult = requestArray("/api/v1/banking/accounts", token)
+
+    fun listTransactions(token: String, limit: Int = 50): ApiArrayResult =
+        requestArray("/api/v1/banking/transactions?limit=$limit", token)
+
+    fun listBeneficiaries(token: String): ApiArrayResult = requestArray("/api/v1/banking/beneficiaries", token)
+
+    fun getSecuritySettings(token: String): ApiResult =
+        request("/api/v1/banking/security-settings", "GET", null, token = token)
 
     companion object {
         fun toJson(signed: SignedBehaviorPayload): JSONObject {

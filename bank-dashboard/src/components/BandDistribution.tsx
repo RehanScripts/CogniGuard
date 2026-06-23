@@ -22,7 +22,7 @@ export default function BandDistribution({ rows }: BandDistributionProps) {
           <XAxis dataKey="band" />
           <YAxis allowDecimals={false} />
           <Tooltip />
-          <Bar dataKey="count" fill="#2563eb" />
+          <Bar dataKey="count" fill="#176FC1" />
         </BarChart>
       </ResponsiveContainer>
     </div>

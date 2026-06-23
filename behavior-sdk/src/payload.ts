@@ -108,12 +108,18 @@ async function hmacSha256Hex(signingSecret: string, nonce: string, msg: string):
   return toHex(sig);
 }
 
-let seqCounter = 0;
+// Seeded from wall-clock epoch millis, not 0: the gateway's per-binding seq floor
+// (`seq:{device_fp}` in integrity.py) is monotonic and persists across login cycles, so a
+// client that restarts seq at 0/1 on every fresh page-load/login collides with that stored
+// floor and trips SEQ_REPLAY on the second login from the same device. An epoch-millis base
+// is strictly increasing across reloads and matches the gateway's own seq convention.
+let seqCounter = Date.now();
 
-/** Resets the monotonic seq counter — call on a fresh login/session (a fresh nonce
- * cycle), matching the server's per-binding Redis floor starting back at 0. */
+/** Re-seeds the monotonic seq counter for a fresh login/session (a fresh nonce cycle).
+ * Uses `max(current, now)` so seq is never moved backward — the server floor only ever
+ * advances, so the client must too. */
 export function resetSequence(): void {
-  seqCounter = 0;
+  seqCounter = Math.max(seqCounter, Date.now());
 }
 
 export async function fetchNonce(apiBase: string): Promise<{ nonce: string; expiresAt: string }> {

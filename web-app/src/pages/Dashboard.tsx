@@ -9,6 +9,7 @@ import {
   getSessionToken,
   listAccounts,
 } from "../api";
+import AppHeader from "../components/AppHeader";
 import CalibrationBanner from "../components/CalibrationBanner";
 import TrustBadge from "../components/TrustBadge";
 
@@ -69,50 +70,53 @@ export default function Dashboard() {
   const displayName = profile?.full_name ?? username;
 
   return (
-    <div className="mx-auto mt-16 max-w-md rounded border p-6 shadow-sm">
-      <h1 className="text-xl font-semibold">Welcome, {displayName}</h1>
+    <div className="min-h-screen bg-cbi-surface">
+      <AppHeader username={displayName} />
+      <div className="mx-auto mt-8 max-w-md rounded-lg bg-white p-6 shadow">
+        <h1 className="text-xl font-semibold">Welcome, {displayName}</h1>
 
-      {loading && <p className="mt-2 text-sm text-gray-500">Loading accounts...</p>}
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        {loading && <p className="mt-2 text-sm text-gray-500">Loading accounts...</p>}
+        {error && <p className="mt-2 text-sm text-cbi-accent">{error}</p>}
 
-      {!loading && !error && accounts.length === 0 && (
-        <p className="mt-2 text-sm text-gray-500">No accounts found.</p>
-      )}
+        {!loading && !error && accounts.length === 0 && (
+          <p className="mt-2 text-sm text-gray-500">No accounts found.</p>
+        )}
 
-      {accounts.map((account) => (
-        <div key={account.account_id} className="mt-3 border-t pt-3 first:mt-2 first:border-t-0 first:pt-0">
-          <p className="text-3xl font-bold">{formatCurrency(account.balance, account.currency)}</p>
-          <p className="text-sm text-gray-500">
-            {account.account_type ?? "Account"} &middot; {account.masked_account_number}
-          </p>
+        {accounts.map((account) => (
+          <div key={account.account_id} className="mt-3 border-t pt-3 first:mt-2 first:border-t-0 first:pt-0">
+            <p className="text-3xl font-bold">{formatCurrency(account.balance, account.currency)}</p>
+            <p className="text-sm text-gray-500">
+              {account.account_type ?? "Account"} &middot; {account.masked_account_number}
+            </p>
+          </div>
+        ))}
+
+        <CalibrationBanner progress={state.enrollment} />
+        <TrustBadge trustScore={state.trustScore} behaviorMatch={state.behaviorMatch} />
+
+        <button
+          type="button"
+          className="mt-6 w-full rounded bg-cbi-primary px-3 py-2 text-white hover:bg-cbi-primary-dark"
+          onClick={() => navigate("/transfer", { state: { username: displayName } })}
+        >
+          Transfer funds
+        </button>
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            className="w-full rounded border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            onClick={() => navigate("/transactions", { state: { username: displayName } })}
+          >
+            Transaction history
+          </button>
+          <button
+            type="button"
+            className="w-full rounded border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            onClick={() => navigate("/security", { state: { username: displayName } })}
+          >
+            Security settings
+          </button>
         </div>
-      ))}
-
-      <CalibrationBanner progress={state.enrollment} />
-      <TrustBadge trustScore={state.trustScore} behaviorMatch={state.behaviorMatch} />
-
-      <button
-        type="button"
-        className="mt-6 w-full rounded bg-blue-600 px-3 py-2 text-white"
-        onClick={() => navigate("/transfer", { state: { username: displayName } })}
-      >
-        Transfer funds
-      </button>
-      <div className="mt-2 flex gap-2">
-        <button
-          type="button"
-          className="w-full rounded border px-3 py-2 text-sm text-gray-700"
-          onClick={() => navigate("/transactions", { state: { username: displayName } })}
-        >
-          Transaction history
-        </button>
-        <button
-          type="button"
-          className="w-full rounded border px-3 py-2 text-sm text-gray-700"
-          onClick={() => navigate("/security", { state: { username: displayName } })}
-        >
-          Security settings
-        </button>
       </div>
     </div>
   );

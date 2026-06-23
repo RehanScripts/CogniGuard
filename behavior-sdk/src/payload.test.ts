@@ -228,13 +228,16 @@ describe("signPayload", () => {
     expect(tamperedSig.integrity_sig).not.toBe(signed.integrity_sig);
   });
 
-  it("advances seq monotonically and resets via resetSequence()", async () => {
+  it("advances seq monotonically and stays monotonic across resetSequence()", async () => {
     const a = await signPayload(basePartial, "n1", "secret");
     const b = await signPayload(basePartial, "n2", "secret");
     expect(b.seq).toBeGreaterThan(a.seq);
+    // resetSequence() must NOT move seq backward (the gateway's per-binding floor never
+    // resets) -- a fresh nonce cycle still yields a strictly-increasing seq, defeating
+    // cross-cycle replay rather than colliding with the stored floor.
     resetSequence();
     const c = await signPayload(basePartial, "n3", "secret");
-    expect(c.seq).toBe(1);
+    expect(c.seq).toBeGreaterThan(b.seq);
   });
 
   it("sets ts as a valid ISO8601 timestamp", async () => {

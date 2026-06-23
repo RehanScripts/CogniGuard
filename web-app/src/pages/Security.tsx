@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { type SecuritySettingsOut, getSecuritySettings, getSessionToken } from "../api";
+import AppHeader from "../components/AppHeader";
 
 export default function Security() {
   const navigate = useNavigate();
@@ -36,49 +37,52 @@ export default function Security() {
   }, [navigate]);
 
   return (
-    <div className="mx-auto mt-16 max-w-md">
-      <button
-        type="button"
-        className="mb-4 text-sm text-blue-600"
-        onClick={() => navigate("/dashboard", { state: { username } })}
-      >
-        ← Back to dashboard
-      </button>
+    <div className="min-h-screen bg-cbi-surface">
+      <AppHeader username={username} />
+      <div className="mx-auto mt-8 max-w-md">
+        <button
+          type="button"
+          className="mb-4 text-sm text-cbi-primary"
+          onClick={() => navigate("/dashboard", { state: { username } })}
+        >
+          ← Back to dashboard
+        </button>
 
-      <div className="rounded border p-6 shadow-sm">
-        <h1 className="text-xl font-semibold">Security settings</h1>
-        {loading && <p className="mt-2 text-sm text-gray-500">Loading...</p>}
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <div className="rounded-lg bg-white p-6 shadow">
+          <h1 className="text-xl font-semibold">Security settings</h1>
+          {loading && <p className="mt-2 text-sm text-gray-500">Loading...</p>}
+          {error && <p className="mt-2 text-sm text-cbi-accent">{error}</p>}
 
-        {settings && (
-          <>
-            <h2 className="mt-4 text-sm font-semibold text-gray-700">Trusted devices</h2>
-            {settings.trusted_devices.length === 0 && (
-              <p className="mt-1 text-sm text-gray-500">No trusted devices.</p>
-            )}
-            <ul className="mt-2 space-y-2">
-              {settings.trusted_devices.map((d) => (
-                <li key={d.device_id} className="flex justify-between border-t pt-2 text-sm first:border-t-0 first:pt-0">
-                  <span>{d.label ?? d.device_id}</span>
-                  <span className="text-gray-500">{d.is_trusted ? "Trusted" : "Not trusted"}</span>
-                </li>
-              ))}
-            </ul>
+          {settings && (
+            <>
+              <h2 className="mt-4 text-sm font-semibold text-gray-700">Trusted devices</h2>
+              {settings.trusted_devices.length === 0 && (
+                <p className="mt-1 text-sm text-gray-500">No trusted devices.</p>
+              )}
+              <ul className="mt-2 space-y-2">
+                {settings.trusted_devices.map((d) => (
+                  <li key={d.device_id} className="flex justify-between border-t pt-2 text-sm first:border-t-0 first:pt-0">
+                    <span>{d.label ?? d.device_id}</span>
+                    <span className="text-gray-500">{d.is_trusted ? "Trusted" : "Not trusted"}</span>
+                  </li>
+                ))}
+              </ul>
 
-            <h2 className="mt-4 text-sm font-semibold text-gray-700">Active sessions</h2>
-            {settings.active_sessions.length === 0 && (
-              <p className="mt-1 text-sm text-gray-500">No active sessions.</p>
-            )}
-            <ul className="mt-2 space-y-2">
-              {settings.active_sessions.map((s) => (
-                <li key={s.session_id} className="flex justify-between border-t pt-2 text-sm first:border-t-0 first:pt-0">
-                  <span>{s.device_label ?? s.session_id}</span>
-                  <span className="text-gray-500">{s.location ?? "--"}</span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+              <h2 className="mt-4 text-sm font-semibold text-gray-700">Active sessions</h2>
+              {settings.active_sessions.length === 0 && (
+                <p className="mt-1 text-sm text-gray-500">No active sessions.</p>
+              )}
+              <ul className="mt-2 space-y-2">
+                {settings.active_sessions.map((s) => (
+                  <li key={s.session_id} className="flex justify-between border-t pt-2 text-sm first:border-t-0 first:pt-0">
+                    <span>{s.device_label ?? s.session_id}</span>
+                    <span className="text-gray-500">{s.location ?? "--"}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

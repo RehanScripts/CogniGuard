@@ -242,7 +242,15 @@ def test_web_sequence_buffer_caps_at_seq_len_and_trims_oldest(user_id, session_i
     assert max(real_values) == float(fr.SEQ_LEN + 3)
 
 
-def test_mobile_ae_recon_error_folds_through_with_no_redis_write(user_id, session_id):
+def test_mobile_first_event_folds_recon_error_but_stays_cold_start(
+    user_id, session_id, population_calibration
+):
+    """A single mobile event (the login case) is AE-cold-start even with the device's
+    recon error AND a population calibration present -- the session hasn't accumulated
+    MIN_SEQ real rows, so AE-as-primary stays gated and the decision falls back to the
+    IF shadow, biasing to `verify` not `block` (CLAUDE.md invariant 9). Regression guard
+    for the false-block of a genuine first mobile login. The device's error still folds
+    through (logged/visible), and the per-session ring buffer now tracks the row count."""
     behavior = _behavior(
         channel="mobile",
         source="mobile_edge",
@@ -253,9 +261,10 @@ def test_mobile_ae_recon_error_folds_through_with_no_redis_write(user_id, sessio
     bundle = fr.read_bundle(user_id, ctx, redis=redis_client)
 
     assert bundle.ae_recon_error == 0.42
-    assert bundle.behavior_sequence is None
+    assert bundle.behavior_sequence is None  # mobile never uses the server-side window
     assert bundle.behavior_sequence_mask is None
-    assert redis_client.exists(fr._k_seq(session_id)) == 0  # mobile never writes the buffer
+    assert bundle.ae_cold_start is True  # 1 real row < MIN_SEQ, even with calibration
+    assert redis_client.llen(fr._k_seq(session_id)) == 1  # buffer tracks the row count
 
 
 def test_mobile_without_ae_recon_error_is_cold_start(user_id):
@@ -267,14 +276,20 @@ def test_mobile_without_ae_recon_error_is_cold_start(user_id):
     assert bundle.ae_cold_start is True
 
 
-def test_mobile_cold_start_clears_with_recon_error_and_calibration_present(
-    user_id, population_calibration
+def test_mobile_cold_start_clears_once_min_seq_and_calibration_present(
+    user_id, session_id, population_calibration
 ):
+    """Mirrors the web warm-up: AE goes primary for mobile only once the session has
+    accumulated MIN_SEQ real events AND a calibration exists. The device's recon error
+    folds through unchanged throughout."""
     behavior = _behavior(
         channel="mobile", source="mobile_edge", derived_features={}, ae_recon_error=0.1
     )
-    ctx = FeatureReadContext(behavior=behavior)
-    bundle = fr.read_bundle(user_id, ctx, redis=redis_client)
+    ctx = FeatureReadContext(behavior=behavior, session_id=session_id)
+    bundle = None
+    for _ in range(fr.MIN_SEQ):
+        bundle = fr.read_bundle(user_id, ctx, redis=redis_client)
 
     assert bundle.ae_recon_error == 0.1
+    assert bundle.behavior_sequence is None
     assert bundle.ae_cold_start is False

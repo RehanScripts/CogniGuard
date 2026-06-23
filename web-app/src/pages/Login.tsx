@@ -80,62 +80,70 @@ export default function Login() {
   }
 
   return (
-    <div className="mx-auto mt-16 max-w-sm rounded border p-6 shadow-sm">
-      <h1 className="text-xl font-semibold">CogniGuard Bank</h1>
-      <div className="mt-2">
-        <ChannelSwitcher />
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-cbi-primary-light to-cbi-surface px-4 py-16">
+      <div className="mb-6 flex flex-col items-center gap-2">
+        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-cbi-primary text-lg font-bold text-white">
+          CB
+        </span>
+        <h1 className="text-xl font-semibold text-cbi-text">CogniGuard Bank</h1>
+        <p className="text-sm text-gray-500">Central Bank of India · Secure Banking</p>
       </div>
-      <form ref={formRef} className="mt-4 space-y-3" onSubmit={handleSubmit}>
-        <div>
-          <label className="block text-sm text-gray-600" htmlFor="username">
-            Username
-          </label>
-          <input
-            id="username"
-            name="username"
-            className="mt-1 w-full rounded border px-2 py-1"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
+      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow">
+        <div className="mt-2">
+          <ChannelSwitcher />
         </div>
-        <div>
-          <label className="block text-sm text-gray-600" htmlFor="password">
-            Password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            className="mt-1 w-full rounded border px-2 py-1"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+        <form ref={formRef} className="mt-4 space-y-3" onSubmit={handleSubmit}>
+          <div>
+            <label className="block text-sm text-gray-600" htmlFor="username">
+              Username
+            </label>
+            <input
+              id="username"
+              name="username"
+              className="mt-1 w-full rounded border px-2 py-1 focus:border-cbi-primary focus:outline-none"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600" htmlFor="password">
+              Password
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              className="mt-1 w-full rounded border px-2 py-1 focus:border-cbi-primary focus:outline-none"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full rounded bg-cbi-primary px-3 py-2 text-white hover:bg-cbi-primary-dark disabled:opacity-50"
+          >
+            {busy ? "Signing in..." : "Sign in"}
+          </button>
+        </form>
+        {error && (
+          <p className="mt-3 text-sm text-cbi-accent">
+            {error}
+            {hardening && ` (${hardening.action.toLowerCase()}, retry after ${hardening.retry_after_s}s)`}
+          </p>
+        )}
+        {lastResult && (
+          <>
+            <CalibrationBanner progress={lastResult.enrollment} />
+            <TrustBadge
+              trustScore={lastResult.trust_score}
+              behaviorMatch={lastResult.behavior_match_score}
+            />
+          </>
+        )}
+        <div className="mt-6 border-t pt-4">
+          <ConsentToggle username={username} />
         </div>
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-50"
-        >
-          {busy ? "Signing in..." : "Sign in"}
-        </button>
-      </form>
-      {error && (
-        <p className="mt-3 text-sm text-red-600">
-          {error}
-          {hardening && ` (${hardening.action.toLowerCase()}, retry after ${hardening.retry_after_s}s)`}
-        </p>
-      )}
-      {lastResult && (
-        <>
-          <CalibrationBanner progress={lastResult.enrollment} />
-          <TrustBadge
-            trustScore={lastResult.trust_score}
-            behaviorMatch={lastResult.behavior_match_score}
-          />
-        </>
-      )}
-      <div className="mt-6 border-t pt-4">
-        <ConsentToggle username={username} />
       </div>
     </div>
   );

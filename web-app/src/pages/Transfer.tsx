@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { getSessionToken } from "../api";
+import AppHeader from "../components/AppHeader";
 import Payment from "./Payment";
 
 // Route shell for the money-movement area of the app: starts continuous re-scoring
@@ -29,15 +30,18 @@ export default function Transfer() {
   }, [navigate]);
 
   return (
-    <div className="mx-auto mt-16 max-w-md">
-      <button
-        type="button"
-        className="mb-4 text-sm text-blue-600"
-        onClick={() => navigate("/dashboard", { state: { username } })}
-      >
-        ← Back to dashboard
-      </button>
-      <Payment />
+    <div className="min-h-screen bg-cbi-surface">
+      <AppHeader username={username} />
+      <div className="mx-auto mt-8 max-w-md">
+        <button
+          type="button"
+          className="mb-4 text-sm text-cbi-primary"
+          onClick={() => navigate("/dashboard", { state: { username } })}
+        >
+          ← Back to dashboard
+        </button>
+        <Payment />
+      </div>
     </div>
   );
 }

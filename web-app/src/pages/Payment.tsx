@@ -50,7 +50,7 @@ export default function Payment() {
   const needsManualAmount = Boolean(controls?.manual_amount) && !confirmedManualAmount;
 
   return (
-    <div className="rounded border p-6 shadow-sm">
+    <div className="rounded-lg bg-white p-6 shadow">
       <h1 className="text-xl font-semibold">Transfer money</h1>
       <form className="mt-4 space-y-3" onSubmit={submit}>
         <div>
@@ -59,7 +59,7 @@ export default function Payment() {
           </label>
           <input
             id="beneficiary"
-            className="mt-1 w-full rounded border px-2 py-1"
+            className="mt-1 w-full rounded border px-2 py-1 focus:border-cbi-primary focus:outline-none"
             value={beneficiaryVpa}
             onChange={(e) => setBeneficiaryVpa(e.target.value)}
             placeholder="payee@upi"
@@ -72,7 +72,7 @@ export default function Payment() {
           <input
             id="amount"
             type="number"
-            className="mt-1 w-full rounded border px-2 py-1"
+            className="mt-1 w-full rounded border px-2 py-1 focus:border-cbi-primary focus:outline-none"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
@@ -80,13 +80,13 @@ export default function Payment() {
         <button
           type="submit"
           disabled={busy}
-          className="w-full rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-50"
+          className="w-full rounded bg-cbi-primary px-3 py-2 text-white hover:bg-cbi-primary-dark disabled:opacity-50"
         >
           {busy ? "Scoring..." : "Send"}
         </button>
       </form>
 
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-3 text-sm text-cbi-accent">{error}</p>}
 
       {response && (
         <div className="mt-4 space-y-3">

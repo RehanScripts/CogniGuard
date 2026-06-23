@@ -27,21 +27,21 @@ export default function Governance() {
     <div className="space-y-6">
       <h1 className="text-xl font-semibold">Model governance</h1>
 
-      <div className="rounded border p-3">
+      <div className="rounded-lg border bg-white p-3 shadow-sm">
         <h2 className="mb-2 text-sm font-medium text-gray-600">
           Login latency (p95 budget {LOGIN_BUDGET_MS}ms)
         </h2>
         <LatencyHistogram latenciesMs={loginLatencies} budgetMs={LOGIN_BUDGET_MS} />
       </div>
 
-      <div className="rounded border p-3">
+      <div className="rounded-lg border bg-white p-3 shadow-sm">
         <h2 className="mb-2 text-sm font-medium text-gray-600">
           Payment latency (p95 budget {PAYMENT_BUDGET_MS}ms)
         </h2>
         <LatencyHistogram latenciesMs={txnLatencies} budgetMs={PAYMENT_BUDGET_MS} />
       </div>
 
-      <div className="rounded border p-3">
+      <div className="rounded-lg border bg-white p-3 shadow-sm">
         <h2 className="mb-2 text-sm font-medium text-gray-600">Champion / challenger + drift</h2>
         <DriftPanel />
       </div>

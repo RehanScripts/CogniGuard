@@ -17,13 +17,21 @@ import javax.crypto.spec.SecretKeySpec
  * gateway's `datetime.fromisoformat` (Python 3.11+) already parses successfully.
  */
 object Signer {
-    private val seqCounter = AtomicLong(0)
+    // Seeded from wall-clock epoch millis, not 0: the gateway's per-binding seq floor
+    // (`seq:{device_fp}` in integrity.py) is monotonic and persists across login cycles,
+    // so a client that restarts seq at 0/1 on every fresh launch collides with that
+    // stored floor and trips SEQ_REPLAY on the second login from the same device. An
+    // epoch-millis base is strictly increasing across process restarts and matches the
+    // gateway's own seq convention (its fixtures use epoch-millis seqs).
+    private val seqCounter = AtomicLong(Instant.now().toEpochMilli())
 
-    /** Resets the monotonic seq counter -- call on a fresh login/session (a fresh
-     * nonce cycle), matching the server's per-binding Redis floor starting back at 0
-     * (mirrors `behavior-sdk/src/payload.ts::resetSequence`). */
+    /** Re-seeds the monotonic seq counter for a fresh login/session (a fresh nonce
+     * cycle). Uses `max(current, now)` so seq is *never* moved backward -- the server
+     * floor only ever advances, so the client must too (mirrors
+     * `behavior-sdk/src/payload.ts::resetSequence`). */
     fun resetSequence() {
-        seqCounter.set(0)
+        val nowMillis = Instant.now().toEpochMilli()
+        seqCounter.updateAndGet { prev -> maxOf(prev, nowMillis) }
     }
 
     private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)

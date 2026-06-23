@@ -138,6 +138,35 @@ def test_match_high_for_vector_at_baseline_low_for_far():
     assert far < 5
 
 
+def test_zero_mad_dim_does_not_explode_distance():
+    """Regression: a baseline dim with `mad=0` must not produce an infinite robust-z on
+    any live deviation (the bug that false-blocked genuine logins against a synthetic
+    baseline where e.g. hold_time was a constant 80ms). A constant non-zero dim yields a
+    bounded distance; a constant *zero* dim carries no info and is skipped, so a pure
+    channel difference (web baseline, mobile swipe) doesn't blow up the match."""
+    stats = {name: (0.0, 1.0) for name in BEHAVIOR_COLUMNS}
+    stats["hold_time_avg"] = (80.0, 0.0)  # constant non-zero, no spread
+    stats["swipe_velocity_norm"] = (0.0, 0.0)  # constant zero -> no identity info
+    base = _baseline(stats=stats, scale=6.0, threshold=50.0)
+
+    # Live vector at the baseline medians (hold_time=80, swipe=0) is a near-perfect match.
+    at_baseline = [0.0] * N
+    at_baseline[BEHAVIOR_COLUMNS.index("hold_time_avg")] = 80.0
+    assert identity.identity_distance(at_baseline, base) < 1.0
+    assert identity.behavior_match_score(at_baseline, base) > 90
+
+    # A genuine hold-time wobble (80 -> 95ms) stays bounded, not astronomically far.
+    wobble = list(at_baseline)
+    wobble[BEHAVIOR_COLUMNS.index("hold_time_avg")] = 95.0
+    assert identity.identity_distance(wobble, base) < 5.0
+
+    # A nonzero live swipe (mobile) against the zero/zero swipe dim must NOT explode --
+    # the dim is skipped, so the distance stays driven by the informative dims only.
+    swiping = list(at_baseline)
+    swiping[BEHAVIOR_COLUMNS.index("swipe_velocity_norm")] = 1200.0
+    assert identity.identity_distance(swiping, base) < 1.0
+
+
 def test_compute_trust_identity_gates_support():
     """A poor identity match cannot be rescued by strong device/AE (multiplicative
     anchor); cold-start (match None) falls back to support only."""
