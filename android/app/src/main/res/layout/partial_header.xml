@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Shared top bar for post-login screens -- parity with web-app/src/components/AppHeader.tsx:
+<!-- Shared top bar for post-login screens — parity with web-app/src/components/AppHeader.tsx:
      CB logo (tap -> Dashboard) + app name on the left, username on the right. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"

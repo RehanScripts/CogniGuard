@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Parity with web-app/src/pages/Payment.tsx (Implementation.md Phase 18): beneficiary
-     VPA, amount, send button, risk/action result line, and a single combined notice
-     line for whichever txn_controls fired (coercion check / manual amount / cooling);
-     the native demo's deliberately simpler stand-in for Payment.tsx's three separate
-     interactive components (CoercionCheck/ManualAmountEntry/CoolingNotice), which this
-     module doesn't reimplement as native widgets. -->
+     VPA, amount, send button, risk/action result line, and a control panel for whichever
+     txn_controls fired. coercionPanel/manualAmountPanel mirror CoercionCheck.tsx and
+     ManualAmountEntry.tsx, resolved locally against the same scorePayment response with
+     no second backend call; cooling_until stays a plain notice line since CoolingNotice.tsx
+     has no confirm action either, it's just a hold. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -91,5 +91,78 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:textColor="@color/warning_amber" />
+
+        <LinearLayout
+            android:id="@+id/coercionPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/coercionPrompt"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/cbi_accent"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/coercionCancelButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="@color/cbi_accent"
+                    android:text="Cancel -- I'm being told what to do"
+                    android:textColor="@color/white" />
+
+                <Button
+                    android:id="@+id/coercionConfirmButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="No, this is genuinely me" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/manualAmountPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Please re-type the amount to confirm this transfer."
+                android:textColor="@color/warning_amber"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/manualAmountInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Re-enter amount (INR)"
+                android:inputType="numberDecimal" />
+
+            <Button
+                android:id="@+id/confirmAmountButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="@color/cbi_primary"
+                android:text="Confirm amount"
+                android:textColor="@color/white" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

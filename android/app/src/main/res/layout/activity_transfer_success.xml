@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Transfer confirmation screen (Phase 31) -- shown once a transfer clears with no
+<!-- Transfer confirmation screen (Phase 31) — shown once a transfer clears with no
      pending coercion-check/manual-amount/cooling control, so the user lands on a
      definitive "it's done" screen instead of just the raw decision line. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Transaction history (Phase 31, optional Dashboard sub-screen) -- parity with
+<!-- Transaction history (Phase 31, optional Dashboard sub-screen) — parity with
      web-app/src/pages/Transactions.tsx: real /api/v1/banking/transactions +
      /beneficiaries data. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"

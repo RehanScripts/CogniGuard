@@ -101,6 +101,19 @@ adb reverse tcp:8000 tcp:8000     # re-run after each reconnect / adb restart
 ```
 No code change needed. (`SIGNING_SECRET` already mirrors the gateway dev `JWT_SECRET`.)
 
+**Known fragility**: this tunnel silently drops on USB disconnect, device sleep, or an
+`adb` daemon restart — the app then shows "Could not reach CogniGuard" on every screen
+that calls the gateway, even though the gateway itself is healthy. There's no in-app
+retry/reconnect logic (out of scope for a demo prototype). For judging day, run this
+watcher in the background for the whole demo instead of relying on a single one-shot
+call:
+```bash
+while true; do
+  adb reverse --list 2>/dev/null | grep -q "tcp:8000 tcp:8000" || adb reverse tcp:8000 tcp:8000
+  sleep 5
+done
+```
+
 ### B5. Build, install, launch
 Easiest via Android Studio: open `/home/ojasbhalerao/Documents/prj/x/android`, let Gradle
 sync, select the device, click **Run** on the `:app` module.
@@ -245,25 +258,89 @@ banking experience. Pushed to `origin/phase-31-cbi-theme-reskin` (not yet merged
   `LatencyHistogram`/`QuarantineStatus` + `AdminLogin`/`Governance`/`Live`/`Policy` pages +
   `tailwind.config.js`/`index.css`.
 
+### D1b. Build bug found + fixed during web-app verification
+`web-app` failed to load with `Failed to resolve import "@cogniguard/behavior-sdk" from
+"src/pages/Login.tsx"`. Root cause: the repo had no root-level `.dockerignore`, so
+`web-app/Dockerfile`'s `COPY web-app/ ./` (which runs *after* its own `RUN npm install`)
+copied the host's local `web-app/node_modules/` straight into the image, clobbering the
+freshly-installed, correctly-linked `node_modules` with whatever was on the Windows host —
+including a `file:../behavior-sdk` symlink baked with a literal `C:/vs code/...` target that
+can't resolve inside the Linux container. Same risk existed for `behavior-sdk/`'s own
+`COPY behavior-sdk/ ./` step. Fixed by adding a root `.dockerignore` (`**/node_modules`,
+`**/dist`, `**/.git`) and rebuilding both `web-app` and `bank-dashboard`; confirmed
+`@cogniguard/behavior-sdk` now resolves to `/behavior-sdk` inside the container and Vite
+serves `Login.tsx` cleanly (200, no import-analysis error).
+
+### D1c. Real bug found + fixed: web-app login/payment always failed nonce-fetch
+After the `.dockerignore` fix, the web-app still showed "Could not reach CogniGuard" on
+every login/payment attempt. Root cause was a genuine, pre-existing bug in
+`behavior-sdk/src/payload.ts`'s `fetchNonce()`: it built the URL as
+`${apiBase}/auth/nonce`, missing the `/api/v1` prefix every other endpoint in this SDK
+uses (e.g. `index.ts`'s `${cfg.apiBase}/api/v1/behavior/ingest`). `VITE_API_BASE` is
+`http://localhost:8000` (no prefix) per `.env.example`/`Implementation.md` since Phase
+11, so `fetchNonce` always 404'd against the real `/api/v1/auth/nonce` route — meaning
+`CogniGuard.collect()` (called by both `Login.tsx` and `Payment.tsx`) has been broken
+since `behavior-sdk` was first written in Phase 10, silently caught by a bare `catch {}`
+that shows the same generic error for every failure mode. Fixed the URL, updated the
+matching test assertion in `payload.test.ts`, confirmed all 28 `behavior-sdk` vitest
+cases pass, and rebuilt+recreated `web-app`/`bank-dashboard` with the corrected `dist/`.
+
+### D1d. Real bug found + fixed: `devices.browser` column too narrow
+After the nonce-URL fix, login still failed in-browser (still "Could not reach
+CogniGuard") because the gateway then 500'd inserting into `devices`:
+`psycopg.errors.StringDataRightTruncation: value too long for type character
+varying(64)`. `devices.browser` (`gateway/app/models/device.py`) stored the raw
+`device_info.ua` User-Agent string capped at `String(64)` — too narrow for real-world
+UAs (the tester's Electron-based browser sent a ~140-char UA). Widened the column to
+`Text` (matching `device_fingerprint`'s already-unbounded pattern for the same kind of
+free-form client-supplied string), generated+applied an Alembic migration
+(`7ecc6f2ac478_widen_devices_browser_to_text.py`), and confirmed via a replayed login
+with that exact long UA that it now returns `action: allow` with a session token
+instead of crashing. **Web-app login confirmed working end-to-end in-browser.**
+
+### D1e. Real gap found + fixed: SOC Live feed rows weren't clickable
+Tester reported Live-feed rows had no drill-down into `UserDetail`. Root cause: the
+`RiskScoreEvent`/`DecisionEvent` Kafka topic payloads (`gateway/app/schemas/topics.py`)
+never carried `user_id` -- only the REST `/admin/events` backfill's `EventOut` did (it
+reads from Postgres, which has always had it). The live WS feed just relays the raw
+Kafka bytes (`services/broadcaster.py`), so `EventTable`/`Live.tsx` had no `user_id` to
+link with, even though `UserDetail`'s route (`/users/:userId`) already existed.
+Threaded `user_id` end-to-end: added it to both topic schemas, `event_producer.py`'s
+builders, and all 6 `emit_risk_score`/`emit_decision` call sites in
+`auth_flow.py`/`payment_flow.py`/`behavior_flow.py` (the `user.user_id` already in
+scope from the adjacent `audit.persist_scoring_outcome` calls); added `user_id` to
+`bank-dashboard/src/ws.ts`'s `RiskScoreEvent`/`DecisionEvent` types and `EventRow`,
+threaded it through `Live.tsx`'s/`UserDetail.tsx`'s row mappers, and made `EventTable`
+rows clickable (`useNavigate` to `/users/{userId}`) when present. Updated
+`EventTable.test.tsx` to wrap renders in `MemoryRouter`. All 18 bank-dashboard vitest
+cases and all 7 gateway `test_event_producer.py` cases pass. Verified live: consumed
+the raw `risk_scores` Kafka message for a fresh login and confirmed `"user_id": "..."`
+is now present on the wire.
+
 ### D2. Remaining before this is demo-ready
-1. **Wire navigation** (not yet done):
-   - `AndroidManifest.xml` — register `DashboardActivity`, `SecurityCenterActivity`,
-     `TransferSuccessActivity`, `TransactionHistoryActivity` (`exported="false"`); give
-     `DashboardActivity` `android:launchMode="singleTop"` so `TransferSuccessActivity`'s
-     "Done" button (`Intent.FLAG_ACTIVITY_CLEAR_TOP`) reuses the existing instance instead of
-     recreating it.
-   - `LoginActivity.kt` — on `action == "allow"` (both the initial decision and
-     `submitStepUp()`'s success path), navigate to `DashboardActivity` instead of
-     `TransferActivity` directly, passing session token, username, and the
-     `trust_score`/`behavior_match_score`/`device_trust` doubles from the decision body.
-   - `TransferActivity.kt` — in `renderResult()`, on a clean `allow` with no pending
-     `txn_controls` (no coercion-check/manual-amount/cooling), navigate to
-     `TransferSuccessActivity` with the transfer's amount/beneficiary instead of only showing
-     inline result text.
-2. **Build + on-device verification** (blocked on #1): `./gradlew :app:assembleDebug`,
-   `adb install -r`, walk Login → Dashboard → Transfer → Success → back to Dashboard →
-   Security Center → Transaction History on the physical phone; confirm no crashes and that
-   the `mobile`-channel events still show up in the bank-dashboard Live feed.
+1. **Wire navigation** — done:
+   - `AndroidManifest.xml` registers `DashboardActivity`, `SecurityCenterActivity`,
+     `TransferSuccessActivity`, `TransactionHistoryActivity` (`exported="false"`);
+     `DashboardActivity` has `android:launchMode="singleTop"` so `TransferSuccessActivity`'s
+     "Done" button (`Intent.FLAG_ACTIVITY_CLEAR_TOP`) reuses the existing instance.
+   - `LoginActivity.kt` navigates to `DashboardActivity` on `action == "allow"` (both the
+     initial decision and `submitStepUp()`'s success path), passing session token, username,
+     and the `trust_score`/`behavior_match_score`/`device_trust` doubles.
+   - `TransferActivity.kt` navigates to `TransferSuccessActivity` on a clean `allow` with no
+     pending `txn_controls`.
+   - **Follow-up fix (found during on-device walkthrough)**: the original wiring left
+     `manual_amount`/`coercion_check` as dead-end static text with no way to clear them (the
+     success-navigation condition could never become true once either fired). Added real
+     `coercionPanel`/`manualAmountPanel` interactive panels to `activity_transfer.xml` +
+     `TransferActivity.kt`, mirroring `CoercionCheck.tsx`/`ManualAmountEntry.tsx` — resolved
+     entirely client-side against the already-received `scorePayment` response (no second
+     network call), via `coercionAnswered`/`confirmedManualAmount` local state. Verified
+     on-device: a manual-amount-flagged transfer now reaches `TransferSuccessActivity`.
+2. **Build + on-device verification** — done. Login → Dashboard → Transfer (incl.
+   manual-amount control) → Success → back to Dashboard (reused instance) → Security Center
+   → Transaction History (shows the transfer) all walked end-to-end on the physical phone
+   with no crashes (`adb logcat` clean of fatals/`AndroidRuntime` errors). Also hit, and
+   fixed, an unrelated `adb reverse` tunnel-drop fragility (see Part B4 note above).
 3. **Web-app verification (Part B in the original sense)**: re-run the Part A web flows
    (genuine happy path, step-up, coercion/amplifier, impostor fixture) against the reskinned
    pages — confirm no console errors, no failed API calls, no broken layout from the Tailwind

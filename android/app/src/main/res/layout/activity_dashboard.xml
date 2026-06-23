@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Customer banking home screen (Phase 31): welcome card, balance, quick actions,
-     recent transactions -- parity with web-app/src/pages/Dashboard.tsx, backed by the
+     recent transactions — parity with web-app/src/pages/Dashboard.tsx, backed by the
      same real `/api/v1/banking/*` read endpoints (no risk/trust telemetry here). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"

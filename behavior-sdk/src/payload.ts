@@ -123,7 +123,7 @@ export function resetSequence(): void {
 }
 
 export async function fetchNonce(apiBase: string): Promise<{ nonce: string; expiresAt: string }> {
-  const res = await fetch(`${apiBase}/auth/nonce`);
+  const res = await fetch(`${apiBase}/api/v1/auth/nonce`);
   if (!res.ok) {
     throw new Error(`fetchNonce failed: ${res.status} ${res.statusText}`);
   }

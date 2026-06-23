@@ -5,6 +5,7 @@ import type { RiskBand } from "./api";
 export interface RiskScoreEvent {
   entity_type: "login" | "transaction";
   entity_id: string;
+  user_id?: string | null;
   behavior_score: number;
   device_score: number;
   transaction_score: number;
@@ -26,6 +27,7 @@ export interface ReasonCodeLite {
 export interface DecisionEvent {
   entity_type: "login" | "transaction";
   entity_id: string;
+  user_id?: string | null;
   action: "allow" | "verify" | "block";
   required_factors: string[];
   reason_codes: ReasonCodeLite[];

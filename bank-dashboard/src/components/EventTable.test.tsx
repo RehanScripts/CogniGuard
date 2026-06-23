@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import EventTable, { type EventRow } from "./EventTable";
@@ -26,7 +27,11 @@ const ROWS: EventRow[] = [
 
 describe("EventTable", () => {
   it("renders a row per event with band/score/action", () => {
-    render(<EventTable rows={ROWS} />);
+    render(
+      <MemoryRouter>
+        <EventTable rows={ROWS} />
+      </MemoryRouter>,
+    );
     expect(screen.getByText("low")).toBeInTheDocument();
     expect(screen.getByText("high")).toBeInTheDocument();
     expect(screen.getByText("allow")).toBeInTheDocument();
@@ -34,7 +39,11 @@ describe("EventTable", () => {
   });
 
   it("renders an empty state with no rows", () => {
-    render(<EventTable rows={[]} />);
+    render(
+      <MemoryRouter>
+        <EventTable rows={[]} />
+      </MemoryRouter>,
+    );
     expect(screen.getByText(/no events yet/i)).toBeInTheDocument();
   });
 });

@@ -50,7 +50,7 @@ class CogniGuardClient(private val apiBase: String, private val signingSecret: S
         return ApiResult(status, JSONObject(text))
     }
 
-    /** GET endpoints that return a JSON array body (the `/api/v1/banking/*` list
+    /** GET endpoints that return a JSON array body (the `/api/v1/banking` list
      * endpoints) rather than an object -- mirrors `web-app/src/api.ts`'s array-typed
      * `ApiResult<T[]>` calls. */
     private fun requestArray(path: String, token: String? = null): ApiArrayResult {

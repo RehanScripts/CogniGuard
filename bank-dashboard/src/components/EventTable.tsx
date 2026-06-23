@@ -1,3 +1,5 @@
+import { useNavigate } from "react-router-dom";
+
 // Unified row shape so this table can render both the WS live feed (RiskScoreEvent |
 // DecisionEvent, no DB id) and the REST admin/events backfill (EventOut) -- callers
 // convert to this shape rather than EventTable knowing about both wire formats.
@@ -5,6 +7,7 @@ export interface EventRow {
   key: string;
   entityType: string;
   entityId?: string | null;
+  userId?: string | null;
   band?: string | null;
   score?: number | null;
   action?: string | null;
@@ -16,6 +19,8 @@ interface EventTableProps {
 }
 
 export default function EventTable({ rows }: EventTableProps) {
+  const navigate = useNavigate();
+
   return (
     <table className="w-full text-sm">
       <thead>
@@ -29,7 +34,12 @@ export default function EventTable({ rows }: EventTableProps) {
       </thead>
       <tbody>
         {rows.map((row) => (
-          <tr key={row.key} className="border-t">
+          <tr
+            key={row.key}
+            className={`border-t ${row.userId ? "cursor-pointer hover:bg-gray-50" : ""}`}
+            onClick={row.userId ? () => navigate(`/users/${row.userId}`) : undefined}
+            title={row.userId ? "View user detail" : undefined}
+          >
             <td className="py-1">
               {row.entityType}
               {row.entityId ? ` · ${row.entityId.slice(0, 8)}` : ""}

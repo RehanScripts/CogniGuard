@@ -91,6 +91,9 @@ class RiskScoreEvent(BaseModel):
     # AE-primary/IF-shadow provenance (Phase 14/15), surfaced to the SOC feed in Phase 27
     # so judges can see the AE/IF source per event, not just the fused Behavior_Score.
     behavior_score_source: str | None = None
+    # Threaded through so the SOC Live feed can link a row straight to its UserDetail
+    # drill-down (`/users/{user_id}`) without a second lookup by entity_id.
+    user_id: str | None = None
 
 
 class DecisionEvent(BaseModel):
@@ -100,3 +103,4 @@ class DecisionEvent(BaseModel):
     required_factors: list[str] = Field(default_factory=list)
     reason_codes: list[dict] = Field(default_factory=list)
     ts: str
+    user_id: str | None = None

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Customer-facing Security Center (Phase 31): qualitative protection status only --
+<!-- Customer-facing Security Center (Phase 31): qualitative protection status only —
      no model names, raw scores, autoencoder/IF metrics. Parity with
      web-app/src/pages/Security.tsx, plus the value-prop framing requested for the demo. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"

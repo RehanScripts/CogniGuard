@@ -40,6 +40,7 @@ class LoginActivity : AppCompatActivity() {
     private val aeScorerLazy = lazy { AeSequenceScorer(this) }
     private val aeScorer by aeScorerLazy
     private var aeModelVersion: String? = null
+    private var currentUsername: String = ""
     private lateinit var statusText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,6 +64,7 @@ class LoginActivity : AppCompatActivity() {
         loginButton.setOnClickListener {
             val username = usernameInput.text.toString()
             val password = passwordInput.text.toString()
+            currentUsername = username
             statusText.text = "Signing in..."
 
             CoroutineScope(Dispatchers.Main).launch {
@@ -80,7 +82,7 @@ class LoginActivity : AppCompatActivity() {
                     when (body.optString("action")) {
                         "allow" -> {
                             statusText.text = "Welcome back."
-                            goToTransfer(body.optString("session_token", null))
+                            goToDashboard(body)
                         }
                         "verify" -> handleVerify(body)
                         "block" -> statusText.text = "Login denied."
@@ -93,10 +95,25 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun goToTransfer(sessionToken: String?) {
-        val intent = Intent(this@LoginActivity, TransferActivity::class.java)
-        intent.putExtra(TransferActivity.EXTRA_SESSION_TOKEN, sessionToken)
+    /** Lands on `DashboardActivity` (not `TransferActivity` directly) on every `allow` --
+     * Phase 31 nav flow is Login -> Dashboard -> Transfer -> Success. Carries the
+     * continuous-identity-verification doubles (Phase 20-22) through as `Double.NaN` when
+     * absent so `SecurityCenterActivity` can render "Calibrating" instead of a stale value. */
+    private fun goToDashboard(body: JSONObject) {
+        val intent = Intent(this@LoginActivity, DashboardActivity::class.java)
+        intent.putExtra(DashboardActivity.EXTRA_SESSION_TOKEN, body.optString("session_token", null))
+        intent.putExtra(DashboardActivity.EXTRA_USERNAME, currentUsername)
+        if (!body.isNull("trust_score")) {
+            intent.putExtra(DashboardActivity.EXTRA_TRUST_SCORE, body.optDouble("trust_score"))
+        }
+        if (!body.isNull("behavior_match_score")) {
+            intent.putExtra(DashboardActivity.EXTRA_BEHAVIOR_MATCH, body.optDouble("behavior_match_score"))
+        }
+        if (!body.isNull("device_trust")) {
+            intent.putExtra(DashboardActivity.EXTRA_DEVICE_TRUST, body.optDouble("device_trust"))
+        }
         startActivity(intent)
+        finish()
     }
 
     /** "Security Profile Calibration N/10" banner (Phase 21) -- progress accrues over the
@@ -181,7 +198,7 @@ class LoginActivity : AppCompatActivity() {
                 val res = withContext(Dispatchers.IO) { client.verifyStepUp(challengeId, assertion) }
                 if (res.body.optString("action") == "allow") {
                     statusText.text = "Verified."
-                    goToTransfer(res.body.optString("session_token", null))
+                    goToDashboard(res.body)
                 } else {
                     statusText.text = "Step-up failed, try again."
                 }

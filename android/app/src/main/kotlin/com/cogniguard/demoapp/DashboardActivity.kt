@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
  * instead of going straight to Transfer, mirroring `web-app/src/pages/Dashboard.tsx`'s
  * place in the nav graph: Login -> Dashboard -> Transfer -> Success, with Dashboard also
  * branching to Security Center and Transaction History. Reads the real, PII-masked
- * `/api/v1/banking/*` endpoints -- no risk/trust telemetry is shown here. */
+ * `/api/v1/banking` endpoints -- no risk/trust telemetry is shown here. */
 class DashboardActivity : AppCompatActivity() {
     private lateinit var client: CogniGuardClient
     private var sessionToken: String? = null
@@ -115,6 +115,7 @@ class DashboardActivity : AppCompatActivity() {
     private fun goToTransfer() {
         val intent = Intent(this, TransferActivity::class.java)
         intent.putExtra(TransferActivity.EXTRA_SESSION_TOKEN, sessionToken)
+        intent.putExtra(TransferActivity.EXTRA_USERNAME, username)
         startActivity(intent)
     }
 

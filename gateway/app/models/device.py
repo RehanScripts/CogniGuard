@@ -17,7 +17,7 @@ class Device(Base):
     device_fingerprint: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     os: Mapped[str | None] = mapped_column(String(32))
     os_version: Mapped[str | None] = mapped_column(String(32))
-    browser: Mapped[str | None] = mapped_column(String(64))
+    browser: Mapped[str | None] = mapped_column(Text)
     app_version: Mapped[str | None] = mapped_column(String(32))
     is_rooted: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     is_emulator: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))

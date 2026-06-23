@@ -17,7 +17,20 @@
             </intent-filter>
         </activity>
         <activity
+            android:name=".DashboardActivity"
+            android:launchMode="singleTop"
+            android:exported="false" />
+        <activity
             android:name=".TransferActivity"
+            android:exported="false" />
+        <activity
+            android:name=".TransferSuccessActivity"
+            android:exported="false" />
+        <activity
+            android:name=".SecurityCenterActivity"
+            android:exported="false" />
+        <activity
+            android:name=".TransactionHistoryActivity"
             android:exported="false" />
     </application>
 </manifest>

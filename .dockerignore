@@ -1,0 +1,10 @@
+# Root build context (web-app's Dockerfile uses `context: .` so it can build the
+# sibling behavior-sdk/ package). Without this, `COPY web-app/ ./` and
+# `COPY behavior-sdk/ ./` run *after* their own `RUN npm install` and would overwrite
+# the freshly-installed, in-container node_modules with whatever node_modules exists
+# on the host -- on this Windows host that bakes in a literal `file:../behavior-sdk`
+# symlink pointing at a Windows path (`C:/vs code/...`), which doesn't resolve inside
+# the Linux container and breaks Vite's import resolution for `@cogniguard/behavior-sdk`.
+**/node_modules
+**/dist
+**/.git

@@ -10,6 +10,7 @@ function toRow(e: UserDetailOut["recent_events"][number]): EventRow {
     key: e.score_id,
     entityType: e.entity_type,
     entityId: e.entity_id,
+    userId: e.user_id,
     band: e.risk_band,
     score: e.final_risk_score,
     action: e.action,

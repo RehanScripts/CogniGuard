@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Transaction history + beneficiaries (Phase 31, optional Dashboard sub-screen) --
- * parity with `web-app/src/pages/Transactions.tsx`, same real `/api/v1/banking/*` data. */
+ * parity with `web-app/src/pages/Transactions.tsx`, same real `/api/v1/banking` data. */
 class TransactionHistoryActivity : AppCompatActivity() {
     private lateinit var client: CogniGuardClient
     private var sessionToken: String? = null

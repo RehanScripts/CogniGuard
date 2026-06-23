@@ -303,7 +303,7 @@ describe("signPayload", () => {
 });
 
 describe("fetchNonce", () => {
-  it("GETs {apiBase}/auth/nonce and maps expires_at -> expiresAt", async () => {
+  it("GETs {apiBase}/api/v1/auth/nonce and maps expires_at -> expiresAt", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ nonce: "n1", expires_at: "2026-06-17T12:02:00Z" }), { status: 200 }),
@@ -311,7 +311,7 @@ describe("fetchNonce", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await fetchNonce("http://localhost:8000");
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/auth/nonce");
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/v1/auth/nonce");
     expect(result).toEqual({ nonce: "n1", expiresAt: "2026-06-17T12:02:00Z" });
   });
 

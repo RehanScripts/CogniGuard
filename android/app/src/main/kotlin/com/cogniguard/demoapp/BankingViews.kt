@@ -18,7 +18,7 @@ import java.util.Locale
  * Small, dependency-free view builders shared by [DashboardActivity], [SecurityCenterActivity],
  * and [TransactionHistoryActivity] -- rows are built programmatically (no RecyclerView/adapter
  * boilerplate) since every list here is short (a handful of accounts/transactions/beneficiaries),
- * mirroring how `web-app/src/pages/Transactions.tsx` simply `.map()`s the same `/api/v1/banking/*`
+ * mirroring how `web-app/src/pages/Transactions.tsx` simply `.map()`s the same `/api/v1/banking`
  * responses straight into list rows.
  */
 object BankingViews {
