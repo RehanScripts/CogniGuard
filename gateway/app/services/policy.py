@@ -48,6 +48,9 @@ DEFAULT_POLICY: dict[str, Any] = {
     "stepup": {
         "light": ["MPIN", "OTP"],
         "strong": ["FINGERPRINT", "PASSKEY", "VOICE_READBACK"],
+        # Failed step-up attempts allowed before login escalates to block + alert
+        # (PRD §10.1 "if fail -> Blocked"). Admin-tunable like every other policy knob.
+        "max_attempts": 3,
     },
     # Per-user continuous identity verification (Implementation.md Phase 20-22). All
     # Trust-Score weights live here, never hardcoded in the scorer (CLAUDE.md invariant 6).

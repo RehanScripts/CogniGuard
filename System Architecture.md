@@ -192,7 +192,7 @@ soc-feed                        pub/sub channel — dashboard
 
 ### 4.2 Kafka topic contracts (PRD §17.3)
 **Input** | key → payload
-- `behavior_events` `user_id` → `{ session_id, typing_speed, typing_rhythm, key_latency, swipe_angle, touch_pressure, mouse_velocity, ts }`
+- `behavior_events` `user_id` → `{ session_id, typing_speed, typing_rhythm, key_latency_avg, typing_rhythm_std, hold_time_avg, swipe_velocity_norm, swipe_angle_dev, touch_pressure_avg, acceleration_variance, mouse_velocity_mean, ts }` (the 9 scalar dims match `BehaviorFeatures`/`BEHAVIOR_COLUMNS` exactly, so Flink's `behavior:{id}:baseline` tracks the full vector the IF/AE scorers consume — `typing_rhythm` is the separate raw inter-key-latency vector, stored but not used for baseline math)
 - `device_events` `device_id` → `{ device_fingerprint, os, app_version, is_rooted, is_emulator, ts }`
 - `login_events` `user_id` → `{ session_id, device_id, ip, asn, is_vpn, geo_lat, geo_lon, ts }`
 - `transaction_events` `user_id` → `{ transaction_id, amount, beneficiary_id, transfer_type, is_new_payee, ts }`

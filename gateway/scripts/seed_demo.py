@@ -64,21 +64,29 @@ BENEFICIARY_AGE_MINUTES = 40
 AVG_AMOUNT_30D = 2000.0  # PRD §5.1 "daily-avg ₹2k"
 STD_AMOUNT_30D = 500.0
 
-# Steady "genuine" baseline for the 5 Flink-abbreviated dims that
-# isolation_forest._BASELINE_KEY_MAP actually reads from behavior:{id}:baseline.
+# Steady "genuine" baseline for the full 9-dim BEHAVIOR_COLUMNS vector that
+# isolation_forest.load_baseline reads from behavior:{id}:baseline.
 _BASELINE_MEANS = {
     "typing_speed": 4.5,
-    "key_latency": 110.0,
-    "swipe_angle": 0.0,
-    "touch_pressure": 0.5,
-    "mouse_velocity": 0.8,
+    "key_latency_avg": 110.0,
+    "typing_rhythm_std": 12.0,
+    "hold_time_avg": 80.0,
+    "swipe_velocity_norm": 0.6,
+    "swipe_angle_dev": 0.0,
+    "touch_pressure_avg": 0.5,
+    "acceleration_variance": 0.0,  # web channel never reports this (mobile-only)
+    "mouse_velocity_mean": 0.8,
 }
 _BASELINE_STDS = {
     "typing_speed": 0.4,
-    "key_latency": 15.0,
-    "swipe_angle": 0.1,
-    "touch_pressure": 0.05,
-    "mouse_velocity": 0.1,
+    "key_latency_avg": 15.0,
+    "typing_rhythm_std": 3.0,
+    "hold_time_avg": 10.0,
+    "swipe_velocity_norm": 0.1,
+    "swipe_angle_dev": 0.1,
+    "touch_pressure_avg": 0.05,
+    "acceleration_variance": 0.01,
+    "mouse_velocity_mean": 0.1,
 }
 
 

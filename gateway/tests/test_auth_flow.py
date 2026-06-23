@@ -154,6 +154,66 @@ def test_lockout_after_five_failures_other_ip_device_unaffected(username):
         assert r_clean.json()["action"] in ("allow", "verify")
 
 
+def test_login_session_id_feeds_the_ae_sequence_buffer(client, username):
+    """Phase 15 follow-up: login mints `kafka_session_id` and scores under it
+    (`session_id` in `FeatureReadContext`) *before* any `Session` row exists. On
+    `allow`, that same UUID becomes the real `Session.session_id`, so the AE ring
+    buffer login just pushed one row into is the exact buffer continuous-ingest/
+    payment will keep accumulating into -- not a discarded one-off key."""
+    _register_and_consent(client, username, PASSWORD)
+    behavior = _signed_behavior(client, seq=1, device_fp=f"device-{username}")
+
+    r = client.post(
+        "/api/v1/auth/login", json={"username": username, "password": PASSWORD, "behavior": behavior}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    if body["action"] != "allow":
+        pytest.skip("model-quality gap: this run didn't resolve to allow")
+
+    from app.utils import security
+
+    claims = security.decode_jwt(body["session_token"])
+    session_id = claims["session_id"]
+    assert redis_client.llen(f"behavior:{session_id}:seq") == 1
+
+
+def test_login_verify_branch_carries_kafka_session_id_into_stepup_state(client, username, monkeypatch):
+    """Same Phase 15 follow-up as above, for the `verify` branch: the `stepup:{id}`
+    Redis blob now carries `kafka_session_id` so `verify_step_up` can assign the
+    *same* session id login already scored under, instead of a fresh one that would
+    orphan login's AE buffer row."""
+    from app.services import auth_flow
+    from app.services.decision_engine import Decision
+
+    forced = Decision(action="verify", assurance="light", action_sensitivity="low")
+    monkeypatch.setattr(auth_flow, "decide", lambda *a, **kw: forced)
+
+    _register_and_consent(client, username, PASSWORD)
+    behavior = _signed_behavior(client, seq=1, device_fp=f"device-{username}")
+    r = client.post(
+        "/api/v1/auth/login", json={"username": username, "password": PASSWORD, "behavior": behavior}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["action"] == "verify"
+    challenge_id = body["step_up"]["challenge_id"]
+
+    raw = redis_client.get(f"stepup:{challenge_id}")
+    state = json.loads(raw)
+    kafka_session_id = state["kafka_session_id"]
+    assert redis_client.llen(f"behavior:{kafka_session_id}:seq") == 1
+
+    good = client.post(
+        "/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": "123456"}
+    )
+    assert good.status_code == 200
+    from app.utils import security
+
+    claims = security.decode_jwt(good.json()["session_token"])
+    assert claims["session_id"] == kafka_session_id
+
+
 def test_step_up_verify_with_demo_otp_completes_login(client, username):
     _register_and_consent(client, username, PASSWORD)
     db = SessionLocal()
@@ -194,3 +254,79 @@ def test_step_up_verify_with_demo_otp_completes_login(client, username):
     body = good.json()
     assert body["action"] == "allow"
     assert body["session_token"]
+
+
+def test_step_up_exhausted_attempts_escalate_to_block_and_open_case(client, username):
+    """PRD §10.1 "if fail -> Blocked": repeated step-up failures must escalate from a
+    retryable `verify` to `block` once policy `max_attempts` is hit, consume the
+    challenge, and open a case (the "alert sent to bank")."""
+    from app.models.governance import Case
+
+    _register_and_consent(client, username, PASSWORD)
+    db = SessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.customer_ref == username))
+        user_id = user.user_id
+        device = fingerprint.get_or_create_device(
+            db, DeviceInfo(fingerprint=f"stepup-lock-device-{username}")
+        )
+        db.commit()
+
+        challenge = AuthChallenge(challenge_type="FINGERPRINT", status="issued")
+        db.add(challenge)
+        db.commit()
+        challenge_id = str(challenge.challenge_id)
+
+        redis_client.set(
+            f"stepup:{challenge_id}",
+            json.dumps(
+                {
+                    "user_id": str(user_id),
+                    "device_id": str(device.device_id),
+                    "ip": "10.0.0.11",
+                    "asn": None,
+                    "risk_band": "high",
+                    "final_risk_score": 72.0,
+                    "challenge_type": "FINGERPRINT",
+                    "assurance": "strong",
+                }
+            ),
+            ex=300,
+        )
+    finally:
+        db.close()
+
+    # Default policy max_attempts=3: first two fail retryably, the third blocks.
+    first = client.post(
+        "/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": ""}
+    )
+    assert first.status_code == 401 and first.json()["action"] == "verify"
+    second = client.post(
+        "/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": ""}
+    )
+    assert second.status_code == 401 and second.json()["action"] == "verify"
+
+    third = client.post(
+        "/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": ""}
+    )
+    assert third.status_code == 401
+    body = third.json()
+    assert body["action"] == "block"
+    assert body["reason_codes"][0]["code"] == "STEP_UP_EXHAUSTED"
+
+    # Challenge consumed -> a further attempt can't reuse it.
+    assert redis_client.get(f"stepup:{challenge_id}") is None
+    again = client.post(
+        "/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": "123456"}
+    )
+    assert again.status_code == 404
+
+    # A case (the bank alert) was opened for the user.
+    db = SessionLocal()
+    try:
+        case = db.scalar(
+            select(Case).where(Case.user_id == user_id).order_by(Case.created_at.desc())
+        )
+        assert case is not None and case.status == "open"
+    finally:
+        db.close()
