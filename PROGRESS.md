@@ -326,6 +326,12 @@ Status: ✅ done · 🚧 in progress · ⬜ todo. Update the row when you pick u
 | 17 | Cross-platform integrity canonicalization (mobile AE fields) | ✅ | — | phase-15-ae-scoring-routing | Python/TS canonical bytes match a shared golden vector |
 | 18 | Native Android app + capture SDK (on-device TFLite) | ✅ | — | phase-15-ae-scoring-routing | Kotlin signing matches golden vector; on-device AE scores end-to-end |
 | 19 | Docs realignment: PRD.md, CLAUDE.md, System Architecture.md | ✅ | — | phase-15-ae-scoring-routing | no remaining "LSTM Phase 2 only" claims; AE-primary documented |
+| 20 | Per-user identity scorer (robust-z distance, identity-gated Trust Score) | ✅ | — | phase-20-continuous-identity-verification | `identity.py` distance/anomaly/trust math; `test_identity.py` baseline/gate/env-penalty cases |
+| 21 | Data-driven enrollment (no seeding) | ✅ | — | phase-20-continuous-identity-verification | `identity_baseline`/`ae_calib` absent before, present + derived-from-data only after the 10th genuine cycle |
+| 22 | Identity + Trust layer wired into `stack.score` | ✅ | — | phase-20-continuous-identity-verification | enrolled match→band moves correctly; cold-start (`enrolled=False`) leaves the legacy score untouched |
+| 23 | `BEHAVIOR_IDENTITY_MISMATCH` reason code + escalation | ✅ | — | phase-20-continuous-identity-verification | enrolled mismatch → `very_high` + the code; enrolled match → absent |
+| 24 | Front-ends: calibration banner, Trust surfacing, real Android `BiometricPrompt` | ✅ | — | phase-20-continuous-identity-verification | web/Android/dashboard render enrollment progress + Trust gauge; vitest/tsc clean both frontends |
+| 25 | Demo rehearsal & threshold tuning (two-user identity demo) | ✅ | — | phase-20-continuous-identity-verification | full Rehan/Ojas script reproducible; `test_identity.py` + Implementation.md Phases 20-25 written; 112 passed |
 | 26 | Boot correctness: Flink auto-submit + AE calibration self-seeding | ✅ | — | phase-20-continuous-identity-verification | clean `docker compose up`; Flink job RUNNING with no manual step; `calib:ae:population` present when a local AE artifact exists |
 | 27 | Surface & persist trust signals (`trust_score`/`behavior_match_score`/`behavior_score_source`) | ✅ | — | phase-20-continuous-identity-verification | `/auth/login`, `/payment/score`, `/behavior/ingest` all return trust fields; `risk_scores` persists them; `/admin/events` surfaces them; 185 passed/1 skipped |
 | 28 | Thin read-only banking endpoints (`/api/v1/banking/*`, authorized exception) | ✅ | — | phase-20-continuous-identity-verification | profile/accounts/transactions/beneficiaries/security-settings return real, PII-masked data behind `deps.get_current_user`; no new writes/models; 191 passed/1 skipped |
@@ -338,9 +344,16 @@ P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7 → P8 → P9 → P11 → P1
                   └───────────────────────────► P10 (SDK; needs only P2's payload shape)
 
 P6 → P13 → P14 → P15 → P17 → P18 → P19
-      P5 ────────► P16 ─────┘
+
+P13 → P20 → P21 → P22 → P23 → P24 → P25
+              P8 ──────┘       P11 ─┘
+
+P4 → P26          P16 → P26
+P22 → P27
+P8 → P28 → P29
+P8 → P11 → P30
 ```
-P10 (SDK) can start in parallel once Phase 2 contracts are frozen. P11 (UI) needs P8–P10. P12 builds on P5/P6/P9. P13–19 (LSTM Autoencoder primary + native Android) is a separate track off P6: P16's ONNX/TFLite artifacts feed both P15 (server-side AE) and P18 (Android); P19 (docs) lands last so the authoritative docs describe shipped contracts, not in-flight ones.
+P10 (SDK) can start in parallel once Phase 2 contracts are frozen. P11 (UI) needs P8–P10. P12 builds on P5/P6/P9. P13–19 (LSTM Autoencoder primary + native Android) is a separate track off P6: P16's ONNX/TFLite artifacts feed both P15 (server-side AE) and P18 (Android); P19 (docs) lands last so the authoritative docs describe shipped contracts, not in-flight ones. P20–25 (per-user identity verification) is a separate track off P13's calibration layer: P20's distance scorer feeds P21's enrollment, P21+P8 feed P22's stack wiring, P23 adds the reason code, P24 (needs P11 too) surfaces it on every front-end, P25 is the rehearsal. P26 (boot correctness) only wires already-built P4/P16 pieces into Compose — no new phase track. P27 (trust-signal plumbing) only surfaces fields P22 already computed. P28 (banking endpoints) is the one user-approved backend exception off P8; P29 is its web-app UI. P30 (admin RBAC) replaces P8's customer-JWT-adjacent shared-secret admin check with a proper role-scoped one, needs P11's `bank-dashboard` to update too.
 
 ---
 
