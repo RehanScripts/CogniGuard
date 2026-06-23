@@ -217,6 +217,69 @@ Then per screen:
 
 ---
 
+## Part D — Phase 31: CBI reskin + Android banking screens (in progress, branch `phase-31-cbi-theme-reskin`)
+
+Status as of 2026-06-23: web-app, bank-dashboard, and the Android demo app have all been
+re-themed to the Central Bank of India palette (`#176FC1` / `#CE0F3E`, Inter typography) per
+the Part C spec above, and the Android app has grown from Login/Transfer-only into a fuller
+banking experience. Pushed to `origin/phase-31-cbi-theme-reskin` (not yet merged to `main`).
+
+### D1. Done
+- **Theme**: `android/app/src/main/res/values/themes.xml` parent switched to
+  `Theme.MaterialComponents.Light.NoActionBar` (enables `MaterialCardView`); `colors.xml`
+  extended with light/muted/divider/success variants; new oval badge/status-dot/success-circle
+  drawables under `res/drawable/`.
+- **Banking data plumbing**: `CogniGuardClient.kt` (capture-sdk) gained `getProfile`,
+  `listAccounts`, `listTransactions`, `listBeneficiaries`, `getSecuritySettings` — mirrors
+  `web-app/src/api.ts`'s existing `/api/v1/banking/*` calls 1:1, refactored into
+  `requestRaw`/`request` (object)/`requestArray` (array) to handle both response shapes.
+- **New screens** (layout + `Activity` written): `DashboardActivity` (welcome/balance card,
+  quick actions, recent transactions), `SecurityCenterActivity` (qualitative-only protection
+  status — no raw scores/model names, per the customer/SOC data split), `TransferSuccessActivity`
+  (client-generated display reference + real amount/beneficiary/timestamp), `TransactionHistoryActivity`
+  (full transaction + beneficiary lists). Shared row/badge builders in `BankingViews.kt`.
+- **Web-app**: extracted a shared `AppHeader.tsx`; reskinned `Dashboard`/`Login`/`Payment`/
+  `Security`/`StepUp`/`Transactions`/`Transfer` pages and `CalibrationBanner`/`ChannelSwitcher`/
+  `CoercionCheck`/`CoolingNotice` components + `tailwind.config.js`/`index.css`.
+- **Bank-dashboard (SOC)**: reskinned `NavBar`/`BandDistribution`/`CaseDrawer`/
+  `LatencyHistogram`/`QuarantineStatus` + `AdminLogin`/`Governance`/`Live`/`Policy` pages +
+  `tailwind.config.js`/`index.css`.
+
+### D2. Remaining before this is demo-ready
+1. **Wire navigation** (not yet done):
+   - `AndroidManifest.xml` — register `DashboardActivity`, `SecurityCenterActivity`,
+     `TransferSuccessActivity`, `TransactionHistoryActivity` (`exported="false"`); give
+     `DashboardActivity` `android:launchMode="singleTop"` so `TransferSuccessActivity`'s
+     "Done" button (`Intent.FLAG_ACTIVITY_CLEAR_TOP`) reuses the existing instance instead of
+     recreating it.
+   - `LoginActivity.kt` — on `action == "allow"` (both the initial decision and
+     `submitStepUp()`'s success path), navigate to `DashboardActivity` instead of
+     `TransferActivity` directly, passing session token, username, and the
+     `trust_score`/`behavior_match_score`/`device_trust` doubles from the decision body.
+   - `TransferActivity.kt` — in `renderResult()`, on a clean `allow` with no pending
+     `txn_controls` (no coercion-check/manual-amount/cooling), navigate to
+     `TransferSuccessActivity` with the transfer's amount/beneficiary instead of only showing
+     inline result text.
+2. **Build + on-device verification** (blocked on #1): `./gradlew :app:assembleDebug`,
+   `adb install -r`, walk Login → Dashboard → Transfer → Success → back to Dashboard →
+   Security Center → Transaction History on the physical phone; confirm no crashes and that
+   the `mobile`-channel events still show up in the bank-dashboard Live feed.
+3. **Web-app verification (Part B in the original sense)**: re-run the Part A web flows
+   (genuine happy path, step-up, coercion/amplifier, impostor fixture) against the reskinned
+   pages — confirm no console errors, no failed API calls, no broken layout from the Tailwind
+   changes.
+4. **SOC dashboard verification**: Live feed, Policy, Cases, Governance, user drill-down —
+   confirm WebSocket feed and Kafka-backed events still render correctly post-reskin.
+5. **End-to-end pipeline spot-check**: one real signed `BehaviorPayload` (via `behavior-sdk`)
+   through login → gateway → Flink → Redis → decision → Kafka → SOC Live feed, to catch any
+   regression the reskin/refactor (e.g. the `CogniGuardClient` request-shape split) might have
+   introduced.
+6. **Final demo-readiness pass**: short writeup of remaining risks (by severity) and a
+   go/no-go per surface (Backend, Android, Web, SOC, Risk Engine, UX) — no model retraining,
+   threshold tuning, or architecture changes in scope for this pass, only stability/polish.
+
+---
+
 ## References
 - Google Stitch — https://stitch.withgoogle.com/
 - Stitch Prompt Guide — https://discuss.ai.google.dev/t/stitch-prompt-guide/83844
