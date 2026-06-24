@@ -25,14 +25,14 @@ export default function ChannelSwitcher({ onChange }: ChannelSwitcherProps) {
       <span>Channel:</span>
       <button
         type="button"
-        className={`rounded px-2 py-1 ${channel === "web" ? "bg-cbi-primary text-white" : "bg-gray-100"}`}
+        className={`rounded px-2 py-1 ${channel === "web" ? "bg-primary text-on-primary" : "bg-gray-100"}`}
         onClick={() => select("web")}
       >
         Web
       </button>
       <button
         type="button"
-        className={`rounded px-2 py-1 ${channel === "mobile" ? "bg-cbi-primary text-white" : "bg-gray-100"}`}
+        className={`rounded px-2 py-1 ${channel === "mobile" ? "bg-primary text-on-primary" : "bg-gray-100"}`}
         onClick={() => select("mobile")}
       >
         Mobile

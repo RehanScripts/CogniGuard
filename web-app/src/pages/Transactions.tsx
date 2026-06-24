@@ -57,32 +57,32 @@ export default function Transactions() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-cbi-surface">
+    <div className="min-h-screen bg-background-custom">
       <AppHeader username={username} />
-      <div className="mx-auto mt-8 max-w-md">
+      <div className="mx-auto mt-8 max-w-md px-4">
         <button
           type="button"
-          className="mb-4 text-sm text-cbi-primary"
+          className="mb-4 text-sm font-medium text-primary"
           onClick={() => navigate("/dashboard", { state: { username } })}
         >
           ← Back to dashboard
         </button>
 
-        <div className="rounded-lg bg-white p-6 shadow">
-          <h1 className="text-xl font-semibold">Transaction history</h1>
-          {loading && <p className="mt-2 text-sm text-gray-500">Loading...</p>}
-          {error && <p className="mt-2 text-sm text-cbi-accent">{error}</p>}
+        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm">
+          <h1 className="font-headline text-xl font-bold text-on-surface">Transaction history</h1>
+          {loading && <p className="mt-2 text-sm text-on-surface-variant">Loading...</p>}
+          {error && <p className="mt-2 text-sm text-secondary">{error}</p>}
           {!loading && !error && transactions.length === 0 && (
-            <p className="mt-2 text-sm text-gray-500">No transactions yet.</p>
+            <p className="mt-2 text-sm text-on-surface-variant">No transactions yet.</p>
           )}
           <ul className="mt-3 space-y-2">
             {transactions.map((txn) => (
-              <li key={txn.transaction_id} className="border-t pt-2 first:border-t-0 first:pt-0">
+              <li key={txn.transaction_id} className="border-t border-outline-variant pt-2 first:border-t-0 first:pt-0">
                 <div className="flex justify-between text-sm">
-                  <span>{txn.beneficiary_name ?? txn.masked_beneficiary_account ?? "--"}</span>
-                  <span className="font-medium">{formatAmount(txn.amount, txn.currency)}</span>
+                  <span className="text-on-surface">{txn.beneficiary_name ?? txn.masked_beneficiary_account ?? "--"}</span>
+                  <span className="font-medium text-secondary">{formatAmount(txn.amount, txn.currency)}</span>
                 </div>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-on-surface-variant">
                   {txn.transfer_type} &middot; {txn.status} &middot; {txn.initiated_at ?? "--"}
                 </p>
               </li>
@@ -90,18 +90,18 @@ export default function Transactions() {
           </ul>
         </div>
 
-        <div className="mt-4 rounded-lg bg-white p-6 shadow">
-          <h2 className="text-lg font-semibold">Beneficiaries</h2>
+        <div className="mt-4 rounded-xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm">
+          <h2 className="font-headline text-lg font-bold text-on-surface">Beneficiaries</h2>
           {!loading && !error && beneficiaries.length === 0 && (
-            <p className="mt-2 text-sm text-gray-500">No saved beneficiaries.</p>
+            <p className="mt-2 text-sm text-on-surface-variant">No saved beneficiaries.</p>
           )}
           <ul className="mt-3 space-y-2">
             {beneficiaries.map((b) => (
-              <li key={b.beneficiary_id} className="flex justify-between border-t pt-2 text-sm first:border-t-0 first:pt-0">
-                <span>
+              <li key={b.beneficiary_id} className="flex justify-between border-t border-outline-variant pt-2 text-sm first:border-t-0 first:pt-0">
+                <span className="text-on-surface">
                   {b.name} ({b.masked_account_number})
                 </span>
-                <span className="text-gray-500">{b.is_verified ? "Verified" : "Unverified"}</span>
+                <span className="text-on-surface-variant">{b.is_verified ? "Verified" : "Unverified"}</span>
               </li>
             ))}
           </ul>

@@ -36,7 +36,7 @@ describe("Login", () => {
     renderLogin();
     expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /sign in/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /secure login/i })).toBeInTheDocument();
   });
 
   it("navigates to the dashboard on allow", async () => {
@@ -45,7 +45,7 @@ describe("Login", () => {
       body: { action: "allow", session_token: "tok" },
     });
     renderLogin();
-    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    fireEvent.click(screen.getByRole("button", { name: /secure login/i }));
     await waitFor(() => expect(screen.getByTestId("dashboard-page")).toBeInTheDocument());
   });
 
@@ -59,7 +59,7 @@ describe("Login", () => {
       },
     });
     renderLogin();
-    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    fireEvent.click(screen.getByRole("button", { name: /secure login/i }));
     await waitFor(() => expect(screen.getByTestId("step-up-page")).toBeInTheDocument());
   });
 });

@@ -20,7 +20,7 @@
             android:layout_height="32dp"
             android:background="@drawable/bg_logo_circle"
             android:gravity="center"
-            android:text="CB"
+            android:text="HT"
             android:textColor="@color/cbi_primary"
             android:textSize="13sp"
             android:textStyle="bold" />

@@ -1,4 +1,5 @@
-import { type FormEvent, useState } from "react";
+import { CheckCircle, Clock, HelpCircle, Info, Shield } from "lucide-react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ChallengeType, type StepUpChallenge, setSessionToken, verifyStepUp } from "../api";
@@ -10,6 +11,7 @@ interface StepUpLocationState {
 }
 
 const OTP_LIKE: ChallengeType[] = ["OTP", "MPIN"];
+const RESEND_SECONDS = 179;
 
 export default function StepUp() {
   const navigate = useNavigate();
@@ -17,17 +19,26 @@ export default function StepUp() {
   const state = location.state as StepUpLocationState | null;
   const challenge = state?.challenge ?? null;
 
-  const [code, setCode] = useState("");
+  const [otpFields, setOtpFields] = useState<string[]>(["", "", "", "", "", ""]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [timerCount, setTimerCount] = useState(RESEND_SECONDS);
+  const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimerCount((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   if (!challenge) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-cbi-primary-light to-cbi-surface px-4">
-        <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow">
+      <div className="flex min-h-screen items-center justify-center bg-background-custom px-4">
+        <div className="w-full max-w-sm rounded-lg bg-surface-container-lowest p-6 shadow">
           <p>
             No active step-up challenge.{" "}
-            <a className="text-cbi-primary" href="/login">
+            <a className="text-primary" href="/login">
               Return to login
             </a>
             .
@@ -55,58 +66,131 @@ export default function StepUp() {
     }
   };
 
-  function handleOtpSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    void submit(code);
+  function handleOtpChange(val: string, index: number) {
+    const updated = [...otpFields];
+    updated[index] = val.slice(-1);
+    setOtpFields(updated);
+    setError(null);
+    if (val && index < 5) {
+      otpRefs.current[index + 1]?.focus();
+    }
+  }
+
+  function handleOtpKeyDown(e: KeyboardEvent<HTMLInputElement>, index: number) {
+    if (e.key === "Backspace" && !otpFields[index] && index > 0) {
+      otpRefs.current[index - 1]?.focus();
+    }
+  }
+
+  function handleOtpSubmit() {
+    void submit(otpFields.join(""));
+  }
+
+  function formatTime(secs: number) {
+    const mins = Math.floor(secs / 60);
+    const remaining = secs % 60;
+    return `${mins.toString().padStart(2, "0")}:${remaining.toString().padStart(2, "0")}`;
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-cbi-primary-light to-cbi-surface px-4 py-16">
-      <div className="mb-6 flex flex-col items-center gap-2">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-cbi-primary text-lg font-bold text-white">
-          CB
-        </span>
-        <p className="text-sm text-gray-500">Central Bank of India · Secure Banking</p>
-      </div>
-      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow">
-        <h1 className="text-xl font-semibold">Verify it's you</h1>
-        <p className="mt-1 text-sm text-gray-600">
-          Required factor: {challenge.challenge_type} ({challenge.assurance})
-        </p>
-        <p className="mt-2 text-xs text-gray-500">
-          This extra check was triggered by our risk engine to keep your account safe.
-        </p>
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-background-custom px-4 py-12">
+      <main className="z-10 w-full max-w-[480px]">
+        <div className="flex flex-col items-center rounded-xl border border-t-4 border-outline-variant border-t-primary bg-surface-container-lowest p-8 shadow-lg">
+          <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-slate-200 bg-slate-100">
+            <Shield className="h-8 w-8 text-primary" />
+          </div>
 
-        {isOtpLike ? (
-          <form className="mt-4 space-y-3" onSubmit={handleOtpSubmit}>
-            {/* Demo OTP is always "123456" (gateway/app/config.py demo_otp). */}
-            <input
-              className="w-full rounded border px-2 py-1 focus:border-cbi-primary focus:outline-none"
-              placeholder="123456"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
+          <h1 className="font-headline mb-2 text-center text-2xl font-bold text-on-surface">Verify it's you</h1>
+          <p className="mb-8 px-4 text-center text-xs leading-relaxed text-on-surface-variant">
+            Required factor: {challenge.challenge_type} ({challenge.assurance})
+          </p>
+
+          {error && (
+            <div className="mb-6 w-full rounded-lg border border-rose-100 bg-rose-50 p-3 text-center text-xs font-semibold text-rose-800">
+              {error}
+            </div>
+          )}
+
+          {isOtpLike ? (
+            <>
+              <div className="mb-6 flex gap-2.5 md:gap-3" id="otp-container">
+                {otpFields.map((field, idx) => (
+                  <input
+                    key={idx}
+                    ref={(el) => (otpRefs.current[idx] = el)}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    disabled={busy}
+                    value={field}
+                    onChange={(e) => handleOtpChange(e.target.value, idx)}
+                    onKeyDown={(e) => handleOtpKeyDown(e, idx)}
+                    className="h-14 w-12 rounded-lg border border-outline-variant bg-white text-center text-xl font-bold outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+                ))}
+              </div>
+
+              <div className="mb-4 w-full rounded border border-slate-200 bg-slate-100 px-3 py-1.5 text-center font-mono text-[11px] text-slate-500">
+                Demo OTP code is: <span className="font-bold text-slate-800">123456</span>
+              </div>
+
+              <div className="mb-8 flex flex-col items-center gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-on-surface-variant">
+                  <Clock className="h-4 w-4 text-outline" />
+                  <span>Resend in</span>
+                  <span className="font-mono font-bold text-on-surface">{formatTime(timerCount)}</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={timerCount > 0}
+                  onClick={() => setTimerCount(RESEND_SECONDS)}
+                  className={`text-xs font-semibold transition-opacity ${
+                    timerCount > 0 ? "cursor-not-allowed text-slate-400 opacity-50" : "text-primary hover:underline"
+                  }`}
+                >
+                  Resend code
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleOtpSubmit}
+                disabled={busy}
+                className="font-headline mb-4 w-full rounded-lg bg-primary py-4 font-bold text-on-primary shadow-md transition-all hover:scale-[1.01] hover:bg-primary-container active:scale-[0.99] disabled:bg-slate-300"
+              >
+                {busy ? "Verifying..." : "Verify"}
+              </button>
+            </>
+          ) : (
             <button
-              type="submit"
+              type="button"
               disabled={busy}
-              className="w-full rounded bg-cbi-primary px-3 py-2 text-white hover:bg-cbi-primary-dark disabled:opacity-50"
+              className="mb-6 w-full rounded-lg bg-primary py-3.5 text-sm font-bold text-on-primary shadow-md transition-all hover:bg-primary-container disabled:opacity-50"
+              onClick={() => void submit(`simulated-${challenge.challenge_type.toLowerCase()}`)}
             >
-              Verify
+              Simulate {challenge.challenge_type}
             </button>
-          </form>
-        ) : (
-          <button
-            type="button"
-            disabled={busy}
-            className="mt-4 w-full rounded bg-cbi-primary px-3 py-2 text-white hover:bg-cbi-primary-dark disabled:opacity-50"
-            onClick={() => void submit(`simulated-${challenge.challenge_type.toLowerCase()}`)}
-          >
-            Simulate {challenge.challenge_type}
-          </button>
-        )}
+          )}
 
-        {error && <p className="mt-3 text-sm text-cbi-accent">{error}</p>}
-      </div>
+          <div className="flex gap-3 rounded-lg bg-slate-100 p-4 text-left">
+            <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <p className="text-xs leading-relaxed text-on-surface-variant">
+              This extra check was triggered by our risk engine to keep your account safe.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 flex justify-between px-2 text-xs">
+          <a href="/login" className="flex items-center gap-1 text-on-surface-variant hover:text-primary">
+            <HelpCircle className="h-4 w-4" />
+            <span>Return to login</span>
+          </a>
+          <div className="flex items-center gap-1 text-on-surface-variant">
+            <CheckCircle className="h-4 w-4 text-emerald-600" />
+            <span>PCI-DSS Secured</span>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

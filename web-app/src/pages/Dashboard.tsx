@@ -1,3 +1,4 @@
+import { CreditCard, History, Send, Shield } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -70,54 +71,91 @@ export default function Dashboard() {
   const displayName = profile?.full_name ?? username;
 
   return (
-    <div className="min-h-screen bg-cbi-surface">
+    <div className="min-h-screen bg-background-custom">
       <AppHeader username={displayName} />
-      <div className="mx-auto mt-8 max-w-md rounded-lg bg-white p-6 shadow">
-        <h1 className="text-xl font-semibold">Welcome, {displayName}</h1>
 
-        {loading && <p className="mt-2 text-sm text-gray-500">Loading accounts...</p>}
-        {error && <p className="mt-2 text-sm text-cbi-accent">{error}</p>}
+      <main className="mx-auto max-w-5xl px-4 py-8 md:px-8">
+        <div className="mb-8 flex flex-col gap-1">
+          <h1 className="font-headline text-3xl font-bold text-on-surface">Welcome, {displayName}</h1>
+          {profile?.kyc_level && (
+            <span className="mt-1 inline-block w-max rounded bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+              {profile.kyc_level}
+            </span>
+          )}
+        </div>
 
+        {loading && <p className="text-sm text-on-surface-variant">Loading accounts...</p>}
+        {error && <p className="text-sm text-secondary">{error}</p>}
         {!loading && !error && accounts.length === 0 && (
-          <p className="mt-2 text-sm text-gray-500">No accounts found.</p>
+          <p className="text-sm text-on-surface-variant">No accounts found.</p>
         )}
 
-        {accounts.map((account) => (
-          <div key={account.account_id} className="mt-3 border-t pt-3 first:mt-2 first:border-t-0 first:pt-0">
-            <p className="text-3xl font-bold">{formatCurrency(account.balance, account.currency)}</p>
-            <p className="text-sm text-gray-500">
-              {account.account_type ?? "Account"} &middot; {account.masked_account_number}
-            </p>
+        {accounts.length > 0 && (
+          <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+            {accounts.map((account) => (
+              <div
+                key={account.account_id}
+                className="rounded-xl border border-t-4 border-outline-variant border-t-primary bg-surface-container-lowest p-6 shadow-sm transition-shadow hover:shadow-md"
+              >
+                <div className="mb-4 flex items-start justify-between">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">
+                      {account.account_type ?? "Account"}
+                    </p>
+                    <h2 className="font-headline text-lg font-bold text-on-surface">
+                      {account.masked_account_number}
+                    </h2>
+                  </div>
+                  <CreditCard className="h-6 w-6 text-primary" />
+                </div>
+                <p className="font-headline text-3xl font-bold text-primary">
+                  {formatCurrency(account.balance, account.currency)}
+                </p>
+                <p className="mt-1 text-xs text-on-surface-variant">{account.status}</p>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
+
+        <div className="mb-8">
+          <h3 className="font-headline mb-4 text-lg font-bold text-on-surface">Quick Actions</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <button
+              type="button"
+              onClick={() => navigate("/transfer", { state: { username: displayName } })}
+              className="flex flex-col items-center justify-center rounded-xl border border-outline-variant bg-surface-container-lowest p-4 text-center transition-all hover:border-primary hover:bg-primary/5"
+            >
+              <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                <Send className="h-4 w-4 text-primary" />
+              </div>
+              <span className="text-xs font-semibold text-on-surface">Transfer Funds</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/transactions", { state: { username: displayName } })}
+              className="flex flex-col items-center justify-center rounded-xl border border-outline-variant bg-surface-container-lowest p-4 text-center transition-all hover:border-primary hover:bg-primary/5"
+            >
+              <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                <History className="h-4 w-4 text-primary" />
+              </div>
+              <span className="text-xs font-semibold text-on-surface">Transaction History</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/security", { state: { username: displayName } })}
+              className="flex flex-col items-center justify-center rounded-xl border border-outline-variant bg-surface-container-lowest p-4 text-center transition-all hover:border-primary hover:bg-primary/5"
+            >
+              <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                <Shield className="h-4 w-4 text-primary" />
+              </div>
+              <span className="text-xs font-semibold text-on-surface">Security Settings</span>
+            </button>
+          </div>
+        </div>
 
         <CalibrationBanner progress={state.enrollment} />
         <TrustBadge trustScore={state.trustScore} behaviorMatch={state.behaviorMatch} />
-
-        <button
-          type="button"
-          className="mt-6 w-full rounded bg-cbi-primary px-3 py-2 text-white hover:bg-cbi-primary-dark"
-          onClick={() => navigate("/transfer", { state: { username: displayName } })}
-        >
-          Transfer funds
-        </button>
-        <div className="mt-2 flex gap-2">
-          <button
-            type="button"
-            className="w-full rounded border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            onClick={() => navigate("/transactions", { state: { username: displayName } })}
-          >
-            Transaction history
-          </button>
-          <button
-            type="button"
-            className="w-full rounded border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            onClick={() => navigate("/security", { state: { username: displayName } })}
-          >
-            Security settings
-          </button>
-        </div>
-      </div>
+      </main>
     </div>
   );
 }

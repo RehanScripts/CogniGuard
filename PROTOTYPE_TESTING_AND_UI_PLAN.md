@@ -357,6 +357,122 @@ is now present on the wire.
 
 ---
 
+## Part E — Stitch screen → backend wiring contract
+
+Read this **before** building screens in Stitch, and keep it open while wiring the
+exported HTML/CSS or Figma back into `web-app/`/`android/`. It exists because Stitch
+only knows what a prompt tells it — it can't know which endpoint a button calls, what
+shape the response is, or that two "non-network" panels (coercion check, manual-amount
+entry) are actually resolved **client-side with no second API call**. Field names below
+are copy-pasted from the actual Pydantic/TS/Kotlin contracts — use them verbatim in the
+re-skinned components, don't rename.
+
+### E0. Two things that don't fit in a Stitch prompt
+1. **Behavior capture is the product, not chrome.** Every screen that has a `login` or
+   `transaction` form must run through the SDK's `collect()`/sign flow before the
+   network call — never hand-build the `behavior` JSON block or skip it to "simplify"
+   a Stitch-exported form. Web: `CogniGuard.init()` once, `CogniGuard.attach(formEl)` on
+   mount, `await CogniGuard.collect("LOGIN" | "TRANSFER" | ...)` right before submit.
+   Android: build an `UnsignedBehaviorPayload` from on-device capture, then
+   `CogniGuardClient.signBehavior(partial)` (fetches a fresh nonce + HMAC-signs) before
+   the `login`/`scorePayment` call.
+2. **Most outcomes are HTTP 200.** `login`, `step-up/verify`, and `payment/score` encode
+   the real outcome in the JSON body's `action` field (`allow`/`verify`/`block`), not the
+   status code — branch on `body.action`, never on `response.ok` alone. The only non-200s
+   that matter: `423` (IP/device lockout, login only), `400` (malformed/integrity-rejected
+   payload), `404`/`401` (step-up: challenge not found / exhausted or wrong code).
+
+### E1. Base setup (both surfaces)
+- Base URL: web `VITE_API_BASE` (default `http://localhost:8000`); Android
+  `API_BASE = "http://127.0.0.1:8000"` (tunneled via `adb reverse tcp:8000 tcp:8000`).
+  **All paths are prefixed `/api/v1/...`** — a bare `/auth/nonce` 404s (this exact bug bit
+  Phase 31, see Part D1c above).
+- Auth header: `Authorization: Bearer <session_token>` on every banking/payment/behavior
+  call. `session_token` comes from a successful `login` or `step-up/verify` response —
+  store it (web: `sessionStorage`, key `cogniguard_session_token`; Android: in-memory /
+  activity-result extra) and attach it to every subsequent call until logout.
+- Centralize all calls in one place per surface — web already does this in
+  `web-app/src/api.ts`; Android in `android/capture-sdk/.../net/CogniGuardClient.kt`.
+  When re-skinning, **add new UI components against these files, never call
+  `fetch`/`HttpURLConnection` directly from a screen/Activity.**
+
+### E2. Web-app screens — endpoint, request, response → UI mapping
+
+| Screen (`web-app/src/pages/`) | Fires on | Endpoint | Request body | Response fields that drive UI |
+|---|---|---|---|---|
+| **Login** | form submit | `POST /api/v1/auth/login` | `{username, password, behavior}` (behavior via `CogniGuard.collect("LOGIN")`) | `action`: `allow`→store `session_token`, go to Dashboard; `verify`→navigate to Step-up with `{challenge: step_up, requiredFactors: required_factors}`; `block`→show `hardening.action`/`retry_after_s` as the error banner. Also surface `enrollment` (→ "Security Profile Calibration N/10" banner) and `trust_score`/`behavior_match_score` (→ trust badge) when present. |
+| **Step-up** (`/step-up`) | OTP form submit, or biometric "Simulate"/real-assertion button | `POST /api/v1/auth/step-up/verify` | `{challenge_id, otp_or_assertion}` (`challenge_id` came from Login's `step_up.challenge_id`; demo OTP is `123456`) | `action === "allow"` + `session_token` present → store token, go to Dashboard. Otherwise show "Incorrect code, try again." `404` = stale/unknown challenge, `401` = wrong code or attempts exhausted — route both back to Login. |
+| **Dashboard** | on mount | `GET /api/v1/banking/profile`, `GET /api/v1/banking/accounts`, `GET /api/v1/banking/transactions?limit=N` (Bearer token) | — | Greeting/profile card ← `ProfileOut` (`full_name`, `masked_email`, `kyc_level`); balance cards ← `AccountOut[]` (`balance`, `masked_account_number`, `status`); recent-activity list ← `TransactionOut[]`. **No risk/score fields exist on this contract by design** (customer/SOC split) — don't add a risk badge here from imagination. |
+| **Transfer** (hosts `Payment`) | on mount: starts `CogniGuard.startContinuous(token)` (background re-scoring, no UI to wire — it POSTs `/api/v1/behavior/ingest` itself); form submit: `CogniGuard.collect("TRANSFER")` → score | `POST /api/v1/payment/score` | `{amount, beneficiary_vpa (or beneficiary_id), transfer_type: "IMPS"\|"NEFT"\|"RTGS"\|"UPI", channel: "web", behavior}` | See **E5** below — `txn_controls` (`coercion_check`, `manual_amount`, `cooling_until`) gate three mutually-exclusive panels with **no further network call**; also show `risk_band`/`risk_score` via a badge and `amplifiers[]` (e.g. `NEW_BENEF_HIGHVAL`) as the reason the panel appeared. |
+| **Transactions** | on mount | `GET /api/v1/banking/transactions?limit=N` | — | `TransactionOut[]`: date (`initiated_at`), payee (`beneficiary_name`), amount (debit styling — this contract has no separate credit/debit flag, treat all listed transfers as debits from this account), `status`, `transfer_type`. No "risk badge column" field exists server-side for the customer view — if a risk column is wanted, it has to come from the SOC dashboard's WS feed, not this endpoint. |
+| **Security** | on mount | `GET /api/v1/banking/security-settings` | — | `SecuritySettingsOut.trusted_devices[]` (`label`, `is_trusted`, `last_used_at`) and `.active_sessions[]` (`device_label`, `location`, `started_at`). Consent toggle uses `POST /api/v1/auth/consent` with `{username, action: "GRANT"\|"WITHDRAW", consent_version}`. There is currently **no revoke-session endpoint** — a "Revoke" button has nothing to call yet; either omit it from the Stitch screen or flag it as a stub. |
+
+### E3. Android screens — endpoint, request, response → UI mapping
+Same contracts as E2 (the gateway doesn't distinguish web/Android beyond `channel` and
+`behavior.source`), via `CogniGuardClient.kt`'s methods. Screens already exist
+(`android/app/src/main/kotlin/com/cogniguard/demoapp/`) — re-skin layouts, keep the
+`Activity` ↔ client-method wiring as-is.
+
+| Activity | Client method(s) | Request | Response → UI |
+|---|---|---|---|
+| `LoginActivity` (login/register/consent) | `register(username, password)`, `setConsent(...)`, `login(username, password, behavior)` | same fields as web Login, `behavior.source = "mobile_edge"`, `behavior.derived_features`/`ae_recon_error` populated from the on-device TFLite autoencoder instead of raw `keystroke`/`mouse`/`touch` blocks | identical `action` branching to web; on `allow` it already passes `trust_score`/`behavior_match_score`/`device_trust` as Intent extras to `DashboardActivity`. On `verify`, present the step-up UI in-place (no separate Activity) and call `verifyStepUp`. |
+| `DashboardActivity` | `getProfile`, `listAccounts`, `listTransactions` | — | same field mapping as web Dashboard. |
+| `TransferActivity` | `scorePayment(token, amount, beneficiaryVpa, transferType, behavior)` | `channel` is hardcoded `"mobile"` inside the client | same `txn_controls` state machine as E5, resolved via `coercionPanel`/`manualAmountPanel` local view state in `activity_transfer.xml` — **do not** add a second network call when these fire. On clean `allow` with no pending `txn_controls`, navigates to `TransferSuccessActivity`. |
+| `TransferSuccessActivity` | none (pure display) | — | renders the already-received response's amount/beneficiary/timestamp + a client-generated display reference; no extra fetch. |
+| `SecurityCenterActivity` | `getSecuritySettings` | — | **qualitative-only** — per the customer/SOC split, do not surface raw scores or model names here even if you can see them elsewhere in the response; this Activity intentionally only derives a "Protected" / "Needs attention" style qualitative state. |
+| `TransactionHistoryActivity` | `listTransactions`, `listBeneficiaries` | — | same mapping as web Transactions, plus a beneficiary list panel. |
+
+### E4. Decision-response field glossary (appears in `login`, `step-up/verify`, `payment/score`, `behavior/ingest`)
+This is the one schema (`DecisionResponse` / `PaymentScoreResponse`) every screen above
+that touches risk decisions has to read from — Stitch should design states for each row,
+not just the happy path:
+
+| Field | Type | Drives |
+|---|---|---|
+| `action` | `"allow" \| "verify" \| "block"` | top-level navigation/branch — design all three as real states, not just `allow` |
+| `risk_band` | `"low" \| "medium" \| "high" \| "very_high"` | badge color (`RiskBadge.tsx` pattern) — never invent a 5th band |
+| `risk_score` | 0–100 float | numeric readout next to the badge |
+| `reason_codes[]` | `{code, detail, sigma?}` | "why this happened" list/tooltip on verify/block |
+| `amplifiers[]` | `{code, multiplier, detail}` | e.g. `NEW_BENEF_HIGHVAL` chip on the transfer-risk panel |
+| `step_up` | `{challenge_type, assurance, challenge_id}` \| `null` | only present when `action === "verify"`; drives the Step-up screen's heading/instructions |
+| `txn_controls` | see **E5** | only on the payment path |
+| `hardening` | `{action: DELAY\|CAPTCHA\|LOCKOUT, scope, retry_after_s}` \| `null` | only on `block`; the retry-after copy on the error banner |
+| `degraded_mode` | bool | a small "running in fallback mode" badge — don't hide this, it's a required demo state |
+| `trust_score` / `behavior_match_score` / `device_trust` | 0–100 float \| `null` | `TrustBadge.tsx`-style qualitative chip; `null` is a valid cold-start state ("not yet calibrated"), design for it explicitly |
+| `enrollment` | `{collected, required, complete, just_finalized}` \| `null` | "Security Profile Calibration N/10" banner (`CalibrationBanner.tsx`) |
+| `integrity` | `"OK" \| "INTEGRITY_REJECT"` | should never reach the UI in normal use; if it does, treat like a generic error, not a risk band |
+
+### E5. Client-side-only state machine — no backend round trip
+`payment/score` returns **one** response that already encodes every control that might
+fire; the three follow-up panels are resolved **entirely against that one response**,
+gated by local booleans — there is no `POST /confirm-coercion` or `POST /manual-amount`
+endpoint to design a call for:
+1. `txn_controls.coercion_check === true` → show the Coercion Check panel
+   (`CoercionCheck.tsx` / Android `coercionPanel`); "Yes, this is me" just flips a local
+   `coercionAnswered = true`, "Cancel" discards the response and returns to the form.
+2. Else if `txn_controls.manual_amount === true` → show Manual Amount Entry
+   (`ManualAmountEntry.tsx` / `manualAmountPanel`); user re-types the amount to confirm
+   it matches `expectedAmount`; on match, flips `confirmedManualAmount = true` locally.
+3. Else if `txn_controls.cooling_until` is set → show a non-blocking Cooling Notice
+   countdown (`CoolingNotice.tsx`) until that timestamp.
+4. Only once all applicable flags are cleared does the UI treat the transfer as
+   "complete" (Android: navigates to `TransferSuccessActivity`; web: just stops
+   rendering the panels). Design Stitch states for **each** of these three panels plus
+   the "all clear" state — don't design only one and assume the others reuse it.
+
+### E6. Edge/empty states to design (often skipped by a single happy-path Stitch prompt)
+- Busy/loading state on every submit button (`busy` flag in every page above).
+- Network-unreachable error ("Could not reach CogniGuard. Please try again.") — generic,
+  fires on any `fetch`/connection failure, not just 4xx/5xx.
+- Lockout banner with the literal retry-after seconds from `hardening.retry_after_s`.
+- Cold-start trust state (`trust_score`/`behavior_match_score` both `null`) — must look
+  intentional, not like a loading glitch.
+- `degraded_mode: true` badge.
+- Empty list states for Transactions/Beneficiaries/Trusted-devices (new accounts have
+  none yet — the seeded demo personas do, but design for zero).
+
+---
+
 ## References
 - Google Stitch — https://stitch.withgoogle.com/
 - Stitch Prompt Guide — https://discuss.ai.google.dev/t/stitch-prompt-guide/83844

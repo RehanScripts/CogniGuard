@@ -12,6 +12,6 @@ describe("ChannelSwitcher", () => {
     fireEvent.click(mobileButton);
 
     expect(onChange).toHaveBeenCalledWith("mobile");
-    expect(mobileButton.className).toContain("bg-cbi-primary");
+    expect(mobileButton.className).toContain("bg-primary");
   });
 });

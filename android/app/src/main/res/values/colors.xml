@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="cbi_primary">#176FC1</color>
-    <color name="cbi_primary_dark">#125A9C</color>
-    <color name="cbi_primary_light">#E8F1FB</color>
-    <color name="cbi_accent">#CE0F3E</color>
-    <color name="cbi_accent_light">#FBE7EC</color>
-    <color name="cbi_surface">#F4F6F8</color>
-    <color name="cbi_text">#1A2330</color>
-    <color name="cbi_text_muted">#6B7686</color>
-    <color name="cbi_divider">#E3E7EC</color>
+    <color name="cbi_primary">#00569C</color>
+    <color name="cbi_primary_dark">#004B87</color>
+    <color name="cbi_primary_light">#EBF1FF</color>
+    <color name="cbi_accent">#BA0035</color>
+    <color name="cbi_accent_light">#FFDADA</color>
+    <color name="cbi_surface">#F8F9FA</color>
+    <color name="cbi_text">#191C1E</color>
+    <color name="cbi_text_muted">#717783</color>
+    <color name="cbi_divider">#C1C7D3</color>
     <color name="warning_amber">#B36B00</color>
     <color name="success_green">#1A8F4C</color>
     <color name="success_green_light">#E5F5EC</color>

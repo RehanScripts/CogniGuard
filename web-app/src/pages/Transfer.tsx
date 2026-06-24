@@ -30,12 +30,12 @@ export default function Transfer() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-cbi-surface">
+    <div className="min-h-screen bg-background-custom">
       <AppHeader username={username} />
-      <div className="mx-auto mt-8 max-w-md">
+      <div className="mx-auto mt-8 max-w-md px-4">
         <button
           type="button"
-          className="mb-4 text-sm text-cbi-primary"
+          className="mb-4 text-sm font-medium text-primary"
           onClick={() => navigate("/dashboard", { state: { username } })}
         >
           ← Back to dashboard

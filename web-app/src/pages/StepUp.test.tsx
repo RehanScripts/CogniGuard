@@ -24,20 +24,21 @@ function renderWithChallenge(challengeType: string) {
 }
 
 describe("StepUp", () => {
-  it("renders a text input for OTP", () => {
+  it("renders a 6-box OTP grid for OTP", () => {
     renderWithChallenge("OTP");
-    expect(screen.getByPlaceholderText("123456")).toBeInTheDocument();
+    expect(screen.getByText(/demo otp code is/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^verify$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /simulate/i })).not.toBeInTheDocument();
   });
 
-  it("renders a text input for MPIN", () => {
+  it("renders a 6-box OTP grid for MPIN", () => {
     renderWithChallenge("MPIN");
-    expect(screen.getByPlaceholderText("123456")).toBeInTheDocument();
+    expect(screen.getByText(/demo otp code is/i)).toBeInTheDocument();
   });
 
-  it("renders a simulate button for FINGERPRINT, not a text input", () => {
+  it("renders a simulate button for FINGERPRINT, not an OTP grid", () => {
     renderWithChallenge("FINGERPRINT");
-    expect(screen.queryByPlaceholderText("123456")).not.toBeInTheDocument();
+    expect(screen.queryByText(/demo otp code is/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /simulate fingerprint/i })).toBeInTheDocument();
   });
 });
