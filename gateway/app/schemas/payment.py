@@ -22,3 +22,12 @@ class PaymentScoreRequest(BaseModel):
 class PaymentScoreResponse(DecisionResponse):
     base_score: float = 0.0  # pre-amplifier 0..100
     # entity_type is always "transaction" on this path
+
+
+class PaymentStepUpVerifyRequest(BaseModel):
+    """Resolves a pending transaction's step-up challenge -- same shape as
+    `auth.StepUpVerifyRequest`, kept separate since it resumes a `Transaction`, not a
+    login `Session`."""
+
+    challenge_id: str
+    otp_or_assertion: str  # OTP code (demo) or factor assertion

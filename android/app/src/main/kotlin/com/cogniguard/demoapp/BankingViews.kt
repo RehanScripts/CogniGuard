@@ -22,6 +22,21 @@ import java.util.Locale
  * responses straight into list rows.
  */
 object BankingViews {
+    /** Android's bundled `org.json` returns the *literal string* `"null"` -- not the
+     * fallback -- when a key's JSON value is an explicit JSON null (e.g. an
+     * `Optional[str] = None` Pydantic field on the gateway), because `JSONObject.NULL`'s
+     * `toString()` is `"null"` and `optString`'s internal stringify helper happily formats
+     * that sentinel before ever consulting the fallback. Every nullable backend field must
+     * go through this, not raw `optString`, to avoid that literal "null" leaking into the UI
+     * (the root cause of the "Welcome back, null" dashboard bug found in prototype testing). */
+    fun safeOptString(json: JSONObject, key: String, fallback: String = ""): String =
+        if (json.isNull(key)) fallback else json.optString(key, fallback)
+
+    /** Same fix as [safeOptString], but returns `null` (not `""`) for callers like
+     * [formatInr]/[formatDateTime] that branch on absence rather than display "". */
+    fun safeOptStringOrNull(json: JSONObject, key: String): String? =
+        if (json.isNull(key)) null else json.optString(key)
+
     fun dp(context: Context, value: Int): Int =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), context.resources.displayMetrics).toInt()
 
@@ -80,67 +95,30 @@ object BankingViews {
         return tv
     }
 
-    fun addTransactionRow(context: Context, container: LinearLayout, txn: JSONObject) {
-        val row = LinearLayout(context)
-        row.orientation = LinearLayout.VERTICAL
-
-        val top = LinearLayout(context)
-        top.orientation = LinearLayout.HORIZONTAL
-        val name =
-            textView(
-                context,
-                txn.optString("beneficiary_name").ifBlank { txn.optString("masked_beneficiary_account", "--") },
-                15f,
-                R.color.cbi_text,
-            )
-        name.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        val amount = textView(context, formatInr(txn.optDouble("amount").takeIf { !it.isNaN() }, txn.optString("currency", null)), 15f, R.color.cbi_text, bold = true)
-        top.addView(name)
-        top.addView(amount)
-
-        val sub =
-            textView(
-                context,
-                "${txn.optString("transfer_type", "--")} · ${txn.optString("status", "--")} · ${formatDateTime(txn.optString("initiated_at", null))}",
-                12f,
-                R.color.cbi_text_muted,
-            )
-        val subParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        subParams.topMargin = dp(context, 2)
-        sub.layoutParams = subParams
-
-        row.addView(top)
-        row.addView(sub)
-        container.addView(row)
+    /** A rounded letter-avatar (reference parity: avatar-chip rows everywhere a list of
+     * transactions/beneficiaries/devices/sessions is rendered). */
+    private fun avatarCircle(context: Context, letter: String, bgRes: Int, sizeDp: Int = 36): TextView {
+        val avatar = TextView(context)
+        avatar.text = letter
+        avatar.setBackgroundResource(bgRes)
+        avatar.setTextColor(ContextCompat.getColor(context, R.color.white))
+        avatar.textSize = 14f
+        avatar.setTypeface(avatar.typeface, Typeface.BOLD)
+        avatar.gravity = Gravity.CENTER
+        avatar.layoutParams = LinearLayout.LayoutParams(dp(context, sizeDp), dp(context, sizeDp))
+        return avatar
     }
 
-    fun addBeneficiaryRow(context: Context, container: LinearLayout, beneficiary: JSONObject) {
-        val row = LinearLayout(context)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-
-        val label =
-            textView(
-                context,
-                "${beneficiary.optString("name", "--")} (${beneficiary.optString("masked_account_number", "--")})",
-                14f,
-                R.color.cbi_text,
-            )
-        label.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-
-        val verified = beneficiary.optBoolean("is_verified")
-        val status = textView(context, if (verified) "Verified" else "Unverified", 12f, if (verified) R.color.success_green else R.color.cbi_text_muted)
-
-        row.addView(label)
-        row.addView(status)
-        container.addView(row)
+    /** A rounded pill status badge (reference parity: light-tint background + colored
+     * bold text, instead of a plain colored label). */
+    private fun pillBadge(context: Context, text: String, isGood: Boolean): TextView {
+        val pill = textView(context, text, 11f, if (isGood) R.color.success_green else R.color.cbi_neutral, bold = true)
+        pill.setBackgroundResource(if (isGood) R.drawable.bg_pill_badge_success else R.drawable.bg_pill_badge_muted)
+        pill.setPadding(dp(context, 10), dp(context, 4), dp(context, 10), dp(context, 4))
+        return pill
     }
 
-    /** A single qualitative status line for [SecurityCenterActivity] -- a colored dot +
-     * label + status text. Deliberately takes no numeric score: callers pass an already
-     * customer-facing phrase ("Trusted" / "Verified" / "Calibrating"), never a raw
-     * model score (CLAUDE.md: no model names/raw scores on the customer surface). */
-    fun addStatusRow(context: Context, container: LinearLayout, label: String, status: String, isGood: Boolean) {
+    private fun rowContainer(context: Context): LinearLayout {
         val row = LinearLayout(context)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
@@ -148,51 +126,141 @@ object BankingViews {
         rowParams.topMargin = dp(context, 4)
         rowParams.bottomMargin = dp(context, 4)
         row.layoutParams = rowParams
+        return row
+    }
 
-        val dot = View(context)
-        dot.setBackgroundResource(if (isGood) R.drawable.bg_status_dot_success else R.drawable.bg_status_dot_muted)
-        val dotParams = LinearLayout.LayoutParams(dp(context, 10), dp(context, 10))
-        dotParams.marginEnd = dp(context, 10)
-        dot.layoutParams = dotParams
+    fun addTransactionRow(context: Context, container: LinearLayout, txn: JSONObject) {
+        val row = rowContainer(context)
+
+        val name = safeOptString(txn, "beneficiary_name").ifBlank { safeOptString(txn, "masked_beneficiary_account", "--") }
+        val avatarParams = LinearLayout.LayoutParams(dp(context, 36), dp(context, 36))
+        avatarParams.marginEnd = dp(context, 12)
+        val avatar = avatarCircle(context, name.take(1).uppercase(), R.drawable.bg_badge_circle_primary)
+        avatar.layoutParams = avatarParams
+
+        val textColumn = LinearLayout(context)
+        textColumn.orientation = LinearLayout.VERTICAL
+        textColumn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        textColumn.addView(textView(context, name, 14f, R.color.cbi_text, bold = true))
+        val sub =
+            textView(
+                context,
+                "${safeOptString(txn, "transfer_type", "--")} · ${safeOptString(txn, "status", "--")} · ${formatDateTime(safeOptStringOrNull(txn, "initiated_at"))}",
+                12f,
+                R.color.cbi_text_muted,
+            )
+        val subParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        subParams.topMargin = dp(context, 2)
+        sub.layoutParams = subParams
+        textColumn.addView(sub)
+
+        val amount = textView(context, formatInr(txn.optDouble("amount").takeIf { !it.isNaN() }, safeOptStringOrNull(txn, "currency")), 15f, R.color.cbi_text, bold = true)
+        val amountParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        amountParams.marginStart = dp(context, 8)
+        amount.layoutParams = amountParams
+
+        row.addView(avatar)
+        row.addView(textColumn)
+        row.addView(amount)
+        container.addView(row)
+    }
+
+    fun addBeneficiaryRow(context: Context, container: LinearLayout, beneficiary: JSONObject) {
+        val row = rowContainer(context)
+
+        val verified = beneficiary.optBoolean("is_verified")
+        val name = safeOptString(beneficiary, "name", "--")
+        val avatarParams = LinearLayout.LayoutParams(dp(context, 36), dp(context, 36))
+        avatarParams.marginEnd = dp(context, 12)
+        val avatar = avatarCircle(context, name.take(1).uppercase(), if (verified) R.drawable.bg_badge_circle_success else R.drawable.bg_badge_circle_neutral)
+        avatar.layoutParams = avatarParams
+
+        val textColumn = LinearLayout(context)
+        textColumn.orientation = LinearLayout.VERTICAL
+        textColumn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        textColumn.addView(textView(context, name, 14f, R.color.cbi_text, bold = true))
+        textColumn.addView(textView(context, safeOptString(beneficiary, "masked_account_number", "--"), 12f, R.color.cbi_text_muted))
+
+        val status = pillBadge(context, if (verified) "Verified" else "Unverified", verified)
+        val statusParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        statusParams.marginStart = dp(context, 8)
+        status.layoutParams = statusParams
+
+        row.addView(avatar)
+        row.addView(textColumn)
+        row.addView(status)
+        container.addView(row)
+    }
+
+    /** A single qualitative status line for [SecurityCenterActivity] -- an icon chip +
+     * label + pill status badge. Deliberately takes no numeric score: callers pass an
+     * already customer-facing phrase ("Trusted" / "Verified" / "Calibrating"), never a
+     * raw model score (CLAUDE.md: no model names/raw scores on the customer surface). */
+    fun addStatusRow(context: Context, container: LinearLayout, label: String, status: String, isGood: Boolean) {
+        val row = rowContainer(context)
+
+        val iconParams = LinearLayout.LayoutParams(dp(context, 32), dp(context, 32))
+        iconParams.marginEnd = dp(context, 12)
+        val icon = avatarCircle(context, if (isGood) "✓" else "…", if (isGood) R.drawable.bg_badge_circle_success else R.drawable.bg_badge_circle_neutral, sizeDp = 32)
+        icon.layoutParams = iconParams
 
         val labelView = textView(context, label, 14f, R.color.cbi_text)
         labelView.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
 
-        val statusView = textView(context, status, 13f, if (isGood) R.color.success_green else R.color.cbi_text_muted, bold = true)
+        val statusView = pillBadge(context, status, isGood)
+        val statusParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        statusParams.marginStart = dp(context, 8)
+        statusView.layoutParams = statusParams
 
-        row.addView(dot)
+        row.addView(icon)
         row.addView(labelView)
         row.addView(statusView)
         container.addView(row)
     }
 
     fun addDeviceRow(context: Context, container: LinearLayout, device: JSONObject) {
-        val row = LinearLayout(context)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-
-        val label = textView(context, device.optString("label").ifBlank { device.optString("device_id", "--") }, 14f, R.color.cbi_text)
-        label.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        val row = rowContainer(context)
 
         val trusted = device.optBoolean("is_trusted")
-        val status = textView(context, if (trusted) "Trusted" else "Not trusted", 12f, if (trusted) R.color.success_green else R.color.cbi_text_muted)
+        val label = safeOptString(device, "label").ifBlank { safeOptString(device, "device_id", "--") }
+        val avatarParams = LinearLayout.LayoutParams(dp(context, 36), dp(context, 36))
+        avatarParams.marginEnd = dp(context, 12)
+        val avatar = avatarCircle(context, label.take(1).uppercase(), if (trusted) R.drawable.bg_badge_circle_success else R.drawable.bg_badge_circle_neutral)
+        avatar.layoutParams = avatarParams
 
-        row.addView(label)
+        val labelView = textView(context, label, 14f, R.color.cbi_text)
+        labelView.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+
+        val status = pillBadge(context, if (trusted) "Trusted" else "Not trusted", trusted)
+        val statusParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        statusParams.marginStart = dp(context, 8)
+        status.layoutParams = statusParams
+
+        row.addView(avatar)
+        row.addView(labelView)
         row.addView(status)
         container.addView(row)
     }
 
     fun addSessionRow(context: Context, container: LinearLayout, session: JSONObject) {
-        val row = LinearLayout(context)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
+        val row = rowContainer(context)
 
-        val label = textView(context, session.optString("device_label").ifBlank { session.optString("session_id", "--") }, 14f, R.color.cbi_text)
-        label.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        val label = safeOptString(session, "device_label").ifBlank { safeOptString(session, "session_id", "--") }
+        val avatarParams = LinearLayout.LayoutParams(dp(context, 36), dp(context, 36))
+        avatarParams.marginEnd = dp(context, 12)
+        val avatar = avatarCircle(context, label.take(1).uppercase(), R.drawable.bg_badge_circle_primary)
+        avatar.layoutParams = avatarParams
 
-        val location = textView(context, session.optString("location").ifBlank { "--" }, 12f, R.color.cbi_text_muted)
+        val labelView = textView(context, label, 14f, R.color.cbi_text)
+        labelView.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
 
-        row.addView(label)
+        val location = textView(context, safeOptString(session, "location").ifBlank { "--" }, 12f, R.color.cbi_text_muted)
+        val locationParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        locationParams.marginStart = dp(context, 8)
+        location.layoutParams = locationParams
+
+        row.addView(avatar)
+        row.addView(labelView)
         row.addView(location)
         container.addView(row)
     }

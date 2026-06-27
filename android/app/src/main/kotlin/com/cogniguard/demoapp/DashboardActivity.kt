@@ -26,6 +26,7 @@ class DashboardActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         setContentView(R.layout.activity_dashboard)
         client = CogniGuardClient(BuildConfig.API_BASE, BuildConfig.SIGNING_SECRET)
 
@@ -61,7 +62,7 @@ class DashboardActivity : AppCompatActivity() {
                 val transactionsResult = withContext(Dispatchers.IO) { client.listTransactions(token, limit = 5) }
 
                 if (profileResult.status == 200) {
-                    val fullName = profileResult.body.optString("full_name", null)
+                    val fullName = BankingViews.safeOptStringOrNull(profileResult.body, "full_name")
                     if (!fullName.isNullOrBlank()) {
                         findViewById<TextView>(R.id.welcomeText).text = "Welcome back, $fullName"
                     }
@@ -73,10 +74,10 @@ class DashboardActivity : AppCompatActivity() {
                     balanceText.text =
                         BankingViews.formatInr(
                             account.optDouble("balance").takeIf { !it.isNaN() },
-                            account.optString("currency", null),
+                            BankingViews.safeOptStringOrNull(account, "currency"),
                         )
                     accountSummaryText.text =
-                        "${account.optString("account_type", "Account")} · ${account.optString("masked_account_number", "")}"
+                        "${BankingViews.safeOptString(account, "account_type", "Account")} · ${BankingViews.safeOptString(account, "masked_account_number")}"
                 } else {
                     balanceText.text = "--"
                     accountSummaryText.text = "No accounts found."
@@ -106,10 +107,13 @@ class DashboardActivity : AppCompatActivity() {
 
     private fun setupQuickActions() {
         val row = findViewById<LinearLayout>(R.id.quickActionsRow)
-        BankingViews.addQuickAction(this, row, "T", R.drawable.bg_badge_circle_primary, "Transfer") { goToTransfer() }
-        BankingViews.addQuickAction(this, row, "B", R.drawable.bg_badge_circle_accent, "Beneficiaries") { goToTransactionHistory() }
-        BankingViews.addQuickAction(this, row, "S", R.drawable.bg_badge_circle_success, "Security") { goToSecurityCenter() }
-        BankingViews.addQuickAction(this, row, "H", R.drawable.bg_badge_circle_primary, "History") { goToTransactionHistory() }
+        BankingViews.addQuickAction(this, row, "T", R.drawable.bg_tile_rounded_primary, "Transfer") { goToTransfer() }
+        BankingViews.addQuickAction(this, row, "B", R.drawable.bg_tile_rounded_accent, "Beneficiaries") { goToTransactionHistory() }
+        BankingViews.addQuickAction(this, row, "S", R.drawable.bg_tile_rounded_success, "Security") { goToSecurityCenter() }
+        BankingViews.addQuickAction(this, row, "H", R.drawable.bg_tile_rounded_primary, "History") { goToTransactionHistory() }
+
+        findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.quickTransferFab)
+            .setOnClickListener { goToTransfer() }
     }
 
     private fun goToTransfer() {

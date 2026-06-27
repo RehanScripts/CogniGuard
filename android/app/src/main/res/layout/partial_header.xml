@@ -19,15 +19,13 @@
         android:clickable="true"
         android:focusable="true">
 
-        <TextView
+        <ImageView
             android:layout_width="32dp"
             android:layout_height="32dp"
             android:background="@drawable/bg_logo_circle"
-            android:gravity="center"
-            android:text="HT"
-            android:textColor="@color/cbi_primary"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:contentDescription="@string/app_name"
+            android:padding="5dp"
+            android:src="@drawable/logo" />
 
         <TextView
             android:layout_width="wrap_content"

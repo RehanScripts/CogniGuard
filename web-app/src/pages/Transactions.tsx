@@ -1,3 +1,4 @@
+import { ArrowUpRight, CheckCircle2, UserCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -9,6 +10,7 @@ import {
   listTransactions,
 } from "../api";
 import AppHeader from "../components/AppHeader";
+import Footer from "../components/Footer";
 
 function formatAmount(amount: number | null, currency: string | null): string {
   if (amount === null) return "--";
@@ -57,9 +59,9 @@ export default function Transactions() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-background-custom">
+    <div className="flex min-h-screen flex-col bg-background-custom">
       <AppHeader username={username} />
-      <div className="mx-auto mt-8 max-w-md px-4">
+      <div className="mx-auto mt-8 w-full max-w-md flex-1 px-4">
         <button
           type="button"
           className="mb-4 text-sm font-medium text-primary"
@@ -68,45 +70,68 @@ export default function Transactions() {
           ← Back to dashboard
         </button>
 
-        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm">
-          <h1 className="font-headline text-xl font-bold text-on-surface">Transaction history</h1>
-          {loading && <p className="mt-2 text-sm text-on-surface-variant">Loading...</p>}
-          {error && <p className="mt-2 text-sm text-secondary">{error}</p>}
+        <div className="overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest shadow-sm">
+          <h1 className="font-headline px-5 pt-5 text-xl font-bold text-on-surface">Transaction history</h1>
+          {loading && <p className="px-5 pb-5 pt-2 text-sm text-on-surface-variant">Loading...</p>}
+          {error && <p className="px-5 pb-5 pt-2 text-sm text-secondary">{error}</p>}
           {!loading && !error && transactions.length === 0 && (
-            <p className="mt-2 text-sm text-on-surface-variant">No transactions yet.</p>
+            <p className="px-5 pb-5 pt-2 text-sm text-on-surface-variant">No transactions yet.</p>
           )}
-          <ul className="mt-3 space-y-2">
-            {transactions.map((txn) => (
-              <li key={txn.transaction_id} className="border-t border-outline-variant pt-2 first:border-t-0 first:pt-0">
-                <div className="flex justify-between text-sm">
-                  <span className="text-on-surface">{txn.beneficiary_name ?? txn.masked_beneficiary_account ?? "--"}</span>
-                  <span className="font-medium text-secondary">{formatAmount(txn.amount, txn.currency)}</span>
+          {transactions.length > 0 && (
+            <div className="mt-3 divide-y divide-outline-variant">
+              {transactions.map((txn) => (
+                <div key={txn.transaction_id} className="flex items-center justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-slate-50">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-50 text-rose-500">
+                      <ArrowUpRight className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-on-surface">
+                        {txn.beneficiary_name ?? txn.masked_beneficiary_account ?? "--"}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-on-surface-variant">
+                        {txn.transfer_type} &middot; {txn.status} &middot; {txn.initiated_at ?? "--"}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-sm font-bold text-secondary">{formatAmount(txn.amount, txn.currency)}</p>
                 </div>
-                <p className="text-xs text-on-surface-variant">
-                  {txn.transfer_type} &middot; {txn.status} &middot; {txn.initiated_at ?? "--"}
-                </p>
-              </li>
-            ))}
-          </ul>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="mt-4 rounded-xl border border-outline-variant bg-surface-container-lowest p-6 shadow-sm">
-          <h2 className="font-headline text-lg font-bold text-on-surface">Beneficiaries</h2>
+        <div className="mt-4 overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest shadow-sm">
+          <div className="flex items-center justify-between px-5 pt-5">
+            <h2 className="font-headline text-lg font-bold text-on-surface">Beneficiaries</h2>
+            {beneficiaries.length > 0 && <UserCheck className="h-4 w-4 text-primary" />}
+          </div>
           {!loading && !error && beneficiaries.length === 0 && (
-            <p className="mt-2 text-sm text-on-surface-variant">No saved beneficiaries.</p>
+            <p className="px-5 pb-5 pt-2 text-sm text-on-surface-variant">No saved beneficiaries.</p>
           )}
-          <ul className="mt-3 space-y-2">
-            {beneficiaries.map((b) => (
-              <li key={b.beneficiary_id} className="flex justify-between border-t border-outline-variant pt-2 text-sm first:border-t-0 first:pt-0">
-                <span className="text-on-surface">
-                  {b.name} ({b.masked_account_number})
-                </span>
-                <span className="text-on-surface-variant">{b.is_verified ? "Verified" : "Unverified"}</span>
-              </li>
-            ))}
-          </ul>
+          {beneficiaries.length > 0 && (
+            <div className="mt-3 divide-y divide-outline-variant">
+              {beneficiaries.map((b) => (
+                <div key={b.beneficiary_id} className="flex items-center justify-between gap-3 px-5 py-3.5">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                      {(b.name ?? "--").slice(0, 2).toUpperCase()}
+                    </div>
+                    <span className="text-sm text-on-surface">
+                      {b.name} ({b.masked_account_number})
+                    </span>
+                  </div>
+                  <span className={`flex items-center gap-1 text-xs font-semibold ${b.is_verified ? "text-emerald-600" : "text-on-surface-variant"}`}>
+                    {b.is_verified && <CheckCircle2 className="h-3.5 w-3.5" />}
+                    <span>{b.is_verified ? "Verified" : "Unverified"}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

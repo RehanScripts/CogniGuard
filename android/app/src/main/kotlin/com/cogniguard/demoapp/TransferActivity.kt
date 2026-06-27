@@ -5,9 +5,12 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.chip.ChipGroup
 import com.cogniguard.capturesdk.MotionCapture
 import com.cogniguard.capturesdk.TouchCapture
 import com.cogniguard.capturesdk.edge.MobileFeatures
@@ -31,7 +34,10 @@ import java.time.Instant
  * entirely client-side against the one `scorePayment` response already received (no second
  * network call) via `coercionAnswered`/`confirmedManualAmount`, exactly like `Payment.tsx`'s
  * local React state. `cooling_until` stays a plain notice (`CoolingNotice.tsx` has no
- * confirm action either -- it's a timed hold, not a yes/no). */
+ * confirm action either -- it's a timed hold, not a yes/no). `action == "verify"` drives a
+ * real `BiometricPrompt`/demo-OTP step-up against `/api/v1/payment/step-up/verify`
+ * (parity with `LoginActivity.handleVerify` and web's `StepUp.tsx` transaction branch)
+ * before any `txn_controls` panel is shown. */
 class TransferActivity : AppCompatActivity() {
     private lateinit var client: CogniGuardClient
     private lateinit var touchCapture: TouchCapture
@@ -50,12 +56,14 @@ class TransferActivity : AppCompatActivity() {
 
     private lateinit var resultText: TextView
     private lateinit var controlsText: TextView
-    private lateinit var coercionPanel: LinearLayout
-    private lateinit var manualAmountPanel: LinearLayout
+    private lateinit var coercionPanel: MaterialCardView
+    private lateinit var manualAmountPanel: MaterialCardView
     private lateinit var manualAmountInput: EditText
+    private lateinit var transferTypeChipGroup: ChipGroup
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         setContentView(R.layout.activity_transfer)
         client = CogniGuardClient(BuildConfig.API_BASE, BuildConfig.SIGNING_SECRET)
         sessionToken = intent.getStringExtra(EXTRA_SESSION_TOKEN)
@@ -69,6 +77,7 @@ class TransferActivity : AppCompatActivity() {
         coercionPanel = findViewById(R.id.coercionPanel)
         manualAmountPanel = findViewById(R.id.manualAmountPanel)
         manualAmountInput = findViewById(R.id.manualAmountInput)
+        transferTypeChipGroup = findViewById(R.id.transferTypeChipGroup)
 
         findViewById<TextView>(R.id.coercionPrompt).text = ""
         findViewById<Button>(R.id.coercionConfirmButton).setOnClickListener {
@@ -123,13 +132,14 @@ class TransferActivity : AppCompatActivity() {
             CoroutineScope(Dispatchers.Main).launch {
                 try {
                     val behavior = withContext(Dispatchers.IO) { buildBehaviorPayload(action = "TRANSFER") }
+                    val transferType = selectedTransferType()
                     val result =
                         withContext(Dispatchers.IO) {
                             client.scorePayment(
                                 token,
                                 amount,
                                 beneficiaryInput.text.toString(),
-                                transferType = "UPI",
+                                transferType = transferType,
                                 behavior = behavior,
                             )
                         }
@@ -143,12 +153,28 @@ class TransferActivity : AppCompatActivity() {
         }
     }
 
+    private fun selectedTransferType(): String =
+        when (transferTypeChipGroup.checkedChipId) {
+            R.id.chipNeft -> "NEFT"
+            R.id.chipRtgs -> "RTGS"
+            R.id.chipUpi -> "UPI"
+            else -> "IMPS"
+        }
+
     private fun renderResult(body: JSONObject) {
         lastBody = body
         val action = body.optString("action")
         val riskBand = body.optString("risk_band")
         val riskScore = body.optDouble("risk_score")
         resultText.text = "action: $action  risk: $riskBand ($riskScore)"
+
+        // Identity assurance (OTP/Fingerprint/Face) resolves before the transaction-
+        // fraud-layer controls below -- those only make sense once the transfer is
+        // actually authenticated.
+        if (action == "verify") {
+            handleVerify(body)
+            return
+        }
 
         val controls = body.optJSONObject("txn_controls")
         val needsCoercionCheck = controls?.optBoolean("coercion_check") == true && !coercionAnswered
@@ -175,6 +201,69 @@ class TransferActivity : AppCompatActivity() {
         // this same response (no re-call to scorePayment), exactly like Payment.tsx.
         if (action == "allow" && !needsCoercionCheck && !needsManualAmount && !isCooling) {
             goToSuccess(lastAmount, lastBeneficiary)
+        }
+    }
+
+    /** `verify` on a transfer (parity with `LoginActivity.handleVerify`): phishing-
+     * resistant factors go through a real BiometricPrompt (fingerprint sensor or face
+     * unlock -- whichever the device has enrolled, the gateway only knows "FINGERPRINT"/
+     * "PASSKEY"); OTP/MPIN/VOICE_READBACK fall back to the demo code the gateway
+     * accepts. The resolved response feeds back into `renderResult` so any still-
+     * pending coercion/manual-amount/cooling controls continue exactly as before. */
+    private fun handleVerify(body: JSONObject) {
+        val stepUp = body.optJSONObject("step_up")
+        if (stepUp == null) {
+            resultText.text = "Step-up required."
+            return
+        }
+        val challengeId = stepUp.optString("challenge_id")
+        val factor = stepUp.optString("challenge_type")
+        resultText.text = "Verify it's you to continue: $factor"
+        if (factor == "FINGERPRINT" || factor == "FACE" || factor == "PASSKEY") {
+            promptBiometric(factor) { submitPaymentStepUp(challengeId, "biometric-$factor-ok") }
+        } else {
+            // Demo OTP/MPIN code (gateway accepts "123456"); see web StepUp parity.
+            submitPaymentStepUp(challengeId, "123456")
+        }
+    }
+
+    private fun promptBiometric(factor: String, onSuccess: () -> Unit) {
+        val executor = ContextCompat.getMainExecutor(this)
+        val prompt =
+            BiometricPrompt(
+                this,
+                executor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        onSuccess()
+                    }
+
+                    override fun onAuthenticationError(code: Int, errString: CharSequence) {
+                        resultText.text = "Step-up failed: $errString"
+                    }
+                },
+            )
+        val info =
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Verify it's you")
+                .setSubtitle("Confirm your identity to continue ($factor)")
+                .setNegativeButtonText("Cancel")
+                .build()
+        prompt.authenticate(info)
+    }
+
+    private fun submitPaymentStepUp(challengeId: String, assertion: String) {
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val res = withContext(Dispatchers.IO) { client.verifyPaymentStepUp(challengeId, assertion) }
+                when (res.body.optString("action")) {
+                    "allow" -> renderResult(res.body)
+                    "block" -> resultText.text = "Verification failed -- transfer denied."
+                    else -> resultText.text = "Incorrect code, try again."
+                }
+            } catch (e: Exception) {
+                resultText.text = "Could not reach CogniGuard: ${e.message}"
+            }
         }
     }
 

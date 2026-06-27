@@ -238,8 +238,15 @@ def fit_distance_calibration(self_distances: Sequence[float]) -> CalibrationPara
     mad = sorted(abs(v - median) for v in vals)
     mad_val = mad[n // 2] if n % 2 else 0.5 * (mad[n // 2 - 1] + mad[n // 2])
     scale = MAD_TO_STD * mad_val
-    if scale < EPS:
-        # Degenerate (near-identical self-distances): fall back to a fraction of the
-        # threshold so the logistic still has a usable slope.
-        scale = max(threshold * 0.25, EPS)
+    # Always floor the scale relative to the threshold (not just on the degenerate
+    # MAD==0 case): a short, low-noise enrollment (typical of a demo) yields both a
+    # tiny MAD and a tiny threshold, which otherwise fits a near-step-function -- any
+    # live deviation beyond "basically identical" saturates the logistic straight to
+    # 0/1, collapsing the medium/high bands into an instant low->very_high cliff. A
+    # floor of half the threshold keeps a ~1.5x-threshold deviation (moderate drift --
+    # odd rhythm, mild duress) in the graded medium/high range while a ~3x-threshold
+    # deviation (wholesale impostor/emulator) still saturates to very_high. The 0.1
+    # absolute floor covers the edge case of all-identical self-distances (threshold
+    # itself near 0).
+    scale = max(scale, threshold * 0.5, 0.1)
     return CalibrationParams(scale=scale, threshold=threshold, temperature=1.0)

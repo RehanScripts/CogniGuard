@@ -1,5 +1,6 @@
 import { CogniGuard } from "@cogniguard/behavior-sdk";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { type PaymentScoreResponse, getSessionToken, scorePayment } from "../api";
 import CoercionCheck from "../components/CoercionCheck";
@@ -7,7 +8,18 @@ import CoolingNotice from "../components/CoolingNotice";
 import ManualAmountEntry from "../components/ManualAmountEntry";
 import RiskBadge from "../components/RiskBadge";
 
+interface PaymentLocationState {
+  username?: string;
+  // Set by StepUp.tsx when a pending transaction's step-up resolves -- picks back up
+  // exactly where the transfer left off (same risk/controls, action now "allow").
+  resolvedPayment?: PaymentScoreResponse;
+}
+
 export default function Payment() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const locationState = location.state as PaymentLocationState | null;
+
   const [amount, setAmount] = useState("");
   const [beneficiaryVpa, setBeneficiaryVpa] = useState("");
   const [response, setResponse] = useState<PaymentScoreResponse | null>(null);
@@ -15,6 +27,14 @@ export default function Payment() {
   const [coercionAnswered, setCoercionAnswered] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (locationState?.resolvedPayment) {
+      setResponse(locationState.resolvedPayment);
+    }
+    // Only resume once, on the navigation back from /step-up -- not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationState?.resolvedPayment]);
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -37,6 +57,17 @@ export default function Payment() {
         channel: "web",
         behavior,
       });
+      if (body.action === "verify" && body.step_up) {
+        navigate("/step-up", {
+          state: {
+            challenge: body.step_up,
+            requiredFactors: body.required_factors,
+            username: locationState?.username,
+            entityType: "transaction",
+          },
+        });
+        return;
+      }
       setResponse(body);
     } catch {
       setError("Could not reach CogniGuard. Please try again.");

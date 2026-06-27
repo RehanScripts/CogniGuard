@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session as DbSession
 from .. import deps
 from ..models.session import Session as SessionModel
 from ..models.user import User
-from ..schemas.payment import PaymentScoreRequest
+from ..schemas.payment import PaymentScoreRequest, PaymentStepUpVerifyRequest
 from ..scoring.registry import Registry
 from ..services import payment_flow
 
@@ -58,5 +58,18 @@ def score(
         ip=_client_ip(request),
         asn=_client_asn(request),
         background_tasks=background_tasks,
+    )
+    return JSONResponse(response.model_dump(), status_code=status_code)
+
+
+@router.post("/step-up/verify")
+def step_up_verify(
+    req: PaymentStepUpVerifyRequest,
+    background_tasks: BackgroundTasks,
+    db: DbSession = Depends(deps.get_db),
+    redis: Redis = Depends(deps.get_redis),
+) -> JSONResponse:
+    status_code, response = payment_flow.verify_payment_step_up(
+        db, redis, req, background_tasks=background_tasks
     )
     return JSONResponse(response.model_dump(), status_code=status_code)

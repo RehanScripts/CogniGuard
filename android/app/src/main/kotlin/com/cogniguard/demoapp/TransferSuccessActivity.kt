@@ -22,6 +22,7 @@ import java.util.UUID
 class TransferSuccessActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         setContentView(R.layout.activity_transfer_success)
 
         val amount = intent.getDoubleExtra(EXTRA_AMOUNT, 0.0)

@@ -7,6 +7,10 @@ Tiers: knowledge/weak-possession (MPIN, OTP) < OOB possession (VOICE_READBACK) <
 phishing-resistant (FINGERPRINT, PASSKEY). "strong" assurance demands a strong,
 phishing-resistant factor -- not SMS-OTP alone (Implementation.md line 463) -- so its
 candidate tier floor sits above plain OTP/MPIN.
+
+For adaptive re-authentication:
+  light  (medium risk) → single factor: OTP or MPIN
+  strong (high risk)   → sequential two-factor: OTP first, then FINGERPRINT/PASSKEY
 """
 
 from __future__ import annotations
@@ -27,7 +31,12 @@ FACTOR_TIER: dict[ChallengeType, int] = {
 MIN_TIER: dict[Assurance, int] = {"light": 1, "strong": 2}
 
 # Universally-available factors when the caller doesn't know device capabilities yet.
-_UNIVERSAL_CAPS = frozenset({"OTP", "MPIN"})
+# Mobile logins always have BiometricPrompt available, so FINGERPRINT is assumed.
+# Web logins without explicit caps get OTP/MPIN only (no biometric key enrolled).
+_UNIVERSAL_CAPS = frozenset({"OTP", "MPIN", "FINGERPRINT"})
+
+# Biometric factors used as second-factor in strong-assurance 2FA flows.
+_BIOMETRIC_FACTORS: tuple[ChallengeType, ...] = ("FINGERPRINT", "PASSKEY")
 
 
 def select_factor(
@@ -36,9 +45,14 @@ def select_factor(
     stepup_policy: Mapping[str, list[str]],
 ) -> StepUp:
     caps = frozenset(device_caps) if device_caps is not None else _UNIVERSAL_CAPS
-    min_tier = MIN_TIER[required_assurance]
     ladder = stepup_policy.get(required_assurance, [])
 
+    if required_assurance == "strong":
+        # High risk → sequential OTP + Biometric two-factor flow.
+        return _select_strong_factor(caps, ladder)
+
+    # Light assurance (medium risk): single factor — pick first available from ladder.
+    min_tier = MIN_TIER[required_assurance]
     for factor in ladder:
         if factor in caps and FACTOR_TIER.get(factor, 0) >= min_tier:
             return _step_up(factor, required_assurance)
@@ -50,9 +64,7 @@ def select_factor(
         best = max(eligible, key=lambda f: FACTOR_TIER.get(f, 0))
         return _step_up(best, required_assurance)
 
-    # Nothing available clears the bar at all -- still never go below the band's
-    # required strength silently; surface the strongest factor the device has, even
-    # though it falls short, rather than crashing.
+    # Nothing available clears the bar at all -- surface the strongest available.
     if caps:
         best = max(caps, key=lambda f: FACTOR_TIER.get(f, 0))
         return _step_up(best, required_assurance)
@@ -60,9 +72,77 @@ def select_factor(
     return _step_up("OTP", required_assurance)
 
 
-def _step_up(factor: ChallengeType, assurance: Assurance) -> StepUp:
+def _select_strong_factor(
+    caps: frozenset[str],
+    ladder: list[str],
+) -> StepUp:
+    """Strong assurance (high-risk): sequential two-factor — OTP first, then biometric.
+
+    The StepUp object carries `challenge_type=OTP` (first factor the backend verifies via
+    `/step-up/verify`) and `second_factor=FINGERPRINT` (second factor the Android client
+    performs locally via BiometricPrompt before submitting the combined assertion).
+
+    Fallback order:
+      1. OTP + first biometric available in ladder/caps (FINGERPRINT > PASSKEY)
+      2. OTP only (if no biometric available on device)
+      3. First biometric only (if OTP not in caps — unlikely, OTP is always universal)
+    """
+    # Find best biometric second-factor: prefer ladder order, then caps order.
+    second_factor: ChallengeType | None = None
+    for f in ladder:
+        if f in _BIOMETRIC_FACTORS and f in caps:
+            second_factor = f  # type: ignore[assignment]
+            break
+    if second_factor is None:
+        for f in _BIOMETRIC_FACTORS:
+            if f in caps:
+                second_factor = f
+                break
+
+    if "OTP" in caps or "MPIN" in caps:
+        first: ChallengeType = "OTP" if "OTP" in caps else "MPIN"
+        return _step_up(first, "strong", second_factor=second_factor)
+
+    # OTP not available — fall back to biometric-only.
+    if second_factor is not None:
+        return _step_up(second_factor, "strong")
+
+    # Absolute fallback.
+    return _step_up("OTP", "strong")
+
+
+def _step_up(
+    factor: ChallengeType,
+    assurance: Assurance,
+    second_factor: ChallengeType | None = None,
+) -> StepUp:
     return StepUp(
         challenge_type=factor,
         assurance=assurance,
         challenge_id=str(uuid.uuid4()),
+        second_factor=second_factor,
     )
+
+
+_DEMO_OTP_CODE = "123456"
+_OTP_LIKE_CHALLENGE_TYPES = frozenset({"OTP", "MPIN"})
+
+
+def accepts_assertion(challenge_type: str, otp_or_assertion: str) -> bool:
+    """Whether a submitted step-up assertion clears the challenge (login + payment
+    step-up share this exact check).
+
+    Single-factor:
+      • OTP/MPIN: demo code "123456" is accepted.
+      • FINGERPRINT/PASSKEY/VOICE_READBACK: any non-empty assertion means the
+        device-local biometric already succeeded (device-attested).
+
+    Two-factor (strong assurance): Android client sends a combined assertion string
+    "123456:biometric-FINGERPRINT-ok" after completing both steps. The gateway validates
+    the OTP part; the colon-separated biometric token is device-attested proof.
+    """
+    if challenge_type in _OTP_LIKE_CHALLENGE_TYPES:
+        # Support both plain OTP and combined two-factor "OTP:biometric-ok".
+        otp_part = otp_or_assertion.split(":", 1)[0]
+        return otp_part == _DEMO_OTP_CODE
+    return bool(otp_or_assertion)

@@ -17,10 +17,8 @@ android {
 
     buildTypes {
         getByName("debug") {
-            // 127.0.0.1 here relies on `adb reverse tcp:8000 tcp:8000` tunneling the
-            // physical device's loopback port 8000 back to the host's gateway -- swap
-            // for 10.0.2.2 (the emulator's host-loopback alias) if using the emulator.
-            buildConfigField("String", "API_BASE", "\"http://127.0.0.1:8000\"")
+            // Use the PC's Wi-Fi IP directly to avoid dropping ADB reverse tunnels
+            buildConfigField("String", "API_BASE", "\"http://10.22.36.33:8000\"")
             // Dev-only demo value mirroring the gateway's JWT_SECRET (same
             // simplification web-app/src/pages/Login.tsx's SIGNING_SECRET already
             // makes -- see that file's comment).

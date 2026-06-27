@@ -25,6 +25,7 @@ class SecurityCenterActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         setContentView(R.layout.activity_security_center)
         client = CogniGuardClient(BuildConfig.API_BASE, BuildConfig.SIGNING_SECRET)
 
@@ -76,8 +77,8 @@ class SecurityCenterActivity : AppCompatActivity() {
                         }
                         val first = sessions.getJSONObject(0)
                         lastLoginText.text =
-                            "${first.optString("device_label", "This device")} · ${first.optString("location", "Unknown location")} · " +
-                                BankingViews.formatDateTime(first.optString("started_at", null))
+                            "${BankingViews.safeOptString(first, "device_label", "This device")} · ${BankingViews.safeOptString(first, "location", "Unknown location")} · " +
+                                BankingViews.formatDateTime(BankingViews.safeOptStringOrNull(first, "started_at"))
                     } else {
                         addEmptyRow(activeSessionsContainer, "No active sessions.")
                     }

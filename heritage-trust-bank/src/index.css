@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Hanken+Grotesk:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-headline: "Hanken Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Custom Palette matching Heritage Digital Banking */
+  --color-primary: #00569c;
+  --color-primary-container: #176fc1;
+  --color-on-primary-container: #ebf1ff;
+  --color-secondary: #ba0035;
+  --color-secondary-container: #e02349;
+  --color-background-custom: #f8f9fb;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f2f4f6;
+  --color-surface-container: #eceef0;
+  --color-surface-container-high: #e6e8ea;
+  --color-surface-container-highest: #e0e3e5;
+  --color-on-surface: #191c1e;
+  --color-on-surface-variant: #414751;
+  --color-outline: #717783;
+  --color-outline-variant: #c1c7d3;
+  --color-error-custom: #ba1a1a;
+  --color-success-custom: #15803d;
+  --color-primary-fixed: #d4e3ff;
+  --color-secondary-fixed: #ffdada;
+  --color-tertiary-fixed: #d4e3ff;
+}
+
+body {
+  background-color: var(--color-background-custom);
+  font-family: var(--font-sans);
+  color: var(--color-on-surface);
+}

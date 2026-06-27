@@ -53,7 +53,7 @@ from . import (
     hardening,
     integrity,
 )
-from .adaptive_auth import select_factor
+from .adaptive_auth import accepts_assertion, select_factor
 from .decision_engine import decide
 from .policy import active_policy
 
@@ -319,10 +319,27 @@ def login(
                     "final_risk_score": result.final_risk_score,
                     "challenge_type": step_up.challenge_type,
                     "assurance": step_up.assurance,
+                    # second_factor for sequential 2FA (high-risk OTP + biometric)
+                    "second_factor": step_up.second_factor,
                     "kafka_session_id": kafka_session_id,
                 }
             ),
             ex=300,
+        )
+        # Audit: log STEP_UP_REQUIRED for SOC visibility.
+        audit.write_audit_log(
+            db,
+            actor_type="system",
+            actor_id=str(user.user_id),
+            action="STEP_UP_REQUIRED",
+            metadata={
+                "challenge_id": step_up.challenge_id,
+                "challenge_type": step_up.challenge_type,
+                "second_factor": step_up.second_factor,
+                "assurance": step_up.assurance,
+                "risk_band": result.risk_band,
+                "risk_score": result.final_risk_score,
+            },
         )
 
     db.add(
@@ -433,14 +450,27 @@ def verify_step_up(
 
     challenge = db.get(AuthChallenge, uuid.UUID(req.challenge_id))
     challenge_type = state["challenge_type"]
-    is_demo_otp = challenge_type in ("OTP", "MPIN")
-    passed = (req.otp_or_assertion == "123456") if is_demo_otp else bool(req.otp_or_assertion)
+    passed = accepts_assertion(challenge_type, req.otp_or_assertion)
 
     if not passed:
         attempts = (challenge.attempts if challenge is not None else 0) + 1
         if challenge is not None:
             challenge.attempts = attempts
         max_attempts = active_policy(redis=redis)["stepup"].get("max_attempts", 3)
+
+        # Audit: log STEP_UP_FAILED event for SOC.
+        audit.write_audit_log(
+            db,
+            actor_type="system",
+            actor_id=state["user_id"],
+            action="STEP_UP_FAILED",
+            metadata={
+                "challenge_id": req.challenge_id,
+                "challenge_type": challenge_type,
+                "attempt": attempts,
+                "max_attempts": max_attempts,
+            },
+        )
 
         # Exhausted retries -> escalate to block + alert (PRD §10.1 "if fail -> Blocked").
         # Consume the step-up blob so the challenge can't be reused, mark it failed, and
@@ -486,6 +516,40 @@ def verify_step_up(
     if challenge is not None:
         challenge.status = "passed"
         challenge.resolved_at = _now()
+
+    # Determine which factors completed (OTP only vs OTP + biometric).
+    second_factor = state.get("second_factor")
+    factors_completed = [challenge_type]
+    if second_factor and ":" in req.otp_or_assertion:
+        factors_completed.append(second_factor)
+
+    # Audit: log success event(s) for SOC visibility.
+    audit.write_audit_log(
+        db,
+        actor_type="system",
+        actor_id=str(user_id),
+        action="OTP_SUCCESS" if challenge_type in ("OTP", "MPIN") else "BIOMETRIC_SUCCESS",
+        metadata={
+            "challenge_id": req.challenge_id,
+            "challenge_type": challenge_type,
+            "second_factor": second_factor,
+            "factors_completed": factors_completed,
+            "risk_band": state["risk_band"],
+        },
+    )
+    if second_factor and len(factors_completed) > 1:
+        audit.write_audit_log(
+            db,
+            actor_type="system",
+            actor_id=str(user_id),
+            action="BIOMETRIC_SUCCESS",
+            metadata={
+                "challenge_id": req.challenge_id,
+                "challenge_type": second_factor,
+                "step": "second_factor",
+                "risk_band": state["risk_band"],
+            },
+        )
 
     db.add(
         LoginEvent(

@@ -28,8 +28,11 @@ class CogniGuardClient(private val apiBase: String, private val signingSecret: S
         val url = URL("$apiBase$path")
         val conn = url.openConnection() as HttpURLConnection
         try {
+            conn.connectTimeout = 15_000   // 15 s – fail fast if adb reverse not set
+            conn.readTimeout    = 30_000   // 30 s – allow scoring pipeline latency
             conn.requestMethod = method
             conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("User-Agent", "CogniGuard-Android/1.0")
             token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
             conn.doInput = true
             if (body != null) {
@@ -100,6 +103,15 @@ class CogniGuardClient(private val apiBase: String, private val signingSecret: S
         val body =
             JSONObject().put("challenge_id", challengeId).put("otp_or_assertion", otpOrAssertion)
         return request("/api/v1/auth/step-up/verify", "POST", body)
+    }
+
+    /** Transaction step-up verify -- resumes the SAME pending transfer (no session
+     * involved) instead of completing a login. Mirrors `web-app/src/api.ts`
+     * `verifyPaymentStepUp`. */
+    fun verifyPaymentStepUp(challengeId: String, otpOrAssertion: String): ApiResult {
+        val body =
+            JSONObject().put("challenge_id", challengeId).put("otp_or_assertion", otpOrAssertion)
+        return request("/api/v1/payment/step-up/verify", "POST", body)
     }
 
     fun ingest(token: String, behavior: UnsignedBehaviorPayload): ApiResult =

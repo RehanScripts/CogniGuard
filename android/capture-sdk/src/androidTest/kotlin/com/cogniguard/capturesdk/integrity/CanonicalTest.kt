@@ -25,6 +25,42 @@ class CanonicalTest {
         val canonicalStr = canonical(buildCanonicalMetricsTree(unsigned))
         assertEquals(golden.getString("canonical"), canonicalStr)
     }
+
+    /** Regression: plain `Double.toString()` renders scientific notation differently
+     * from Python's `json.dumps` (uppercase `E`, different fixed/scientific threshold,
+     * unsigned/unpadded exponent) -- a near-zero accelerometer-variance reading on an
+     * emulator (`2.456228868932351e-25`) hits exactly this gap and silently corrupts
+     * the HMAC the gateway recomputes from its own (Python) canonicalization. Expected
+     * strings below are `json.dumps(v)` computed against the live gateway's Python. */
+    @Test
+    fun pythonFloatRepr_matchesPythonJsonDumpsAcrossNotationBoundaries() {
+        val cases = mapOf(
+            2.456228868932351e-25 to "2.456228868932351e-25",
+            0.0001 to "0.0001",
+            0.00001 to "1e-05",
+            1e16 to "1e+16",
+            1e15 to "1000000000000000.0",
+            1e17 to "1e+17",
+            -2.5e-30 to "-2.5e-30",
+            123.456 to "123.456",
+            0.0 to "0.0",
+            -0.0 to "-0.0",
+            4.2 to "4.2",
+            812.5 to "812.5",
+            0.0731 to "0.0731",
+            350.0 to "350.0",
+            12.0 to "12.0",
+            289244.7756872493 to "289244.7756872493",
+            1.0 to "1.0",
+            100.0 to "100.0",
+            -42.5 to "-42.5",
+            5e-5 to "5e-05",
+            9999999999999998.0 to "9999999999999998.0",
+        )
+        for ((input, expected) in cases) {
+            assertEquals("pythonFloatRepr($input)", expected, pythonFloatRepr(input))
+        }
+    }
 }
 
 internal fun loadGoldenVector(context: android.content.Context): JSONObject {

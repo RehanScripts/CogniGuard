@@ -134,6 +134,17 @@ export function verifyStepUp(
   });
 }
 
+export function verifyPaymentStepUp(
+  challengeId: string,
+  otpOrAssertion: string,
+): Promise<ApiResult<PaymentScoreResponse>> {
+  return request("/api/v1/payment/step-up/verify", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ challenge_id: challengeId, otp_or_assertion: otpOrAssertion }),
+  });
+}
+
 export interface PaymentScoreRequestBody {
   amount: number;
   beneficiary_id?: string;

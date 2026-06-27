@@ -19,6 +19,7 @@ class TransactionHistoryActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         setContentView(R.layout.activity_transaction_history)
         client = CogniGuardClient(BuildConfig.API_BASE, BuildConfig.SIGNING_SECRET)
 

@@ -18,6 +18,10 @@ class StepUp(BaseModel):
     challenge_type: ChallengeType
     assurance: Assurance
     challenge_id: str
+    # For strong-assurance (high-risk) flows: OTP is challenge_type (first factor),
+    # second_factor is the biometric to run after OTP succeeds (FINGERPRINT / FACE).
+    # None means single-factor challenge (medium-risk / light assurance).
+    second_factor: ChallengeType | None = None
 
 
 class TxnControls(BaseModel):

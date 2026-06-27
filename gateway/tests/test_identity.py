@@ -189,6 +189,26 @@ def test_env_consistency_penalizes_anomalous_context():
     assert dirty < clean
 
 
+def test_fit_distance_calibration_floors_scale_for_tight_enrollment():
+    """Regression: a short, low-noise enrollment (typical demo) yields tightly
+    clustered self-distances -- both threshold and MAD tiny. Without a scale floor,
+    `calibrate_distance` saturates almost immediately past the threshold, collapsing
+    medium/high bands into an instant low->very_high cliff for any live deviation."""
+    tight_self_distances = [0.30, 0.31, 0.29, 0.305, 0.295, 0.32, 0.28, 0.31, 0.30, 0.29]
+    params = identity.fit_distance_calibration(tight_self_distances)
+    assert params.scale >= 0.5 * params.threshold
+
+    # A moderate deviation (not a wholesale impostor) -- ~1.5x the fitted threshold --
+    # should calibrate to a graded anomaly, not instant saturation.
+    moderate = calibration.calibrate_distance(1.5 * params.threshold, params)
+    assert 0.4 < moderate < 0.9
+
+    # A severe deviation (full impostor/emulator) -- ~3x threshold -- should still
+    # saturate close to 1.0.
+    severe = calibration.calibrate_distance(3.0 * params.threshold, params)
+    assert severe > 0.9
+
+
 # ------------------------------------------------------------ data-driven enrollment
 def _vec(seed: float) -> list[float]:
     return [seed + 0.1 * i for i in range(N)]

@@ -1,6 +1,7 @@
 import { LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+import logo from "../assets/logo.jpeg";
 import { clearSessionToken } from "../api";
 
 interface AppHeaderProps {
@@ -24,10 +25,10 @@ export default function AppHeader({ username }: AppHeaderProps) {
           className="flex items-center gap-2"
           onClick={() => navigate("/dashboard", { state: { username } })}
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-sm font-bold text-primary">
-            HT
+          <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-white p-1">
+            <img src={logo} alt="Central Bank of India" className="h-full w-full object-contain" />
           </span>
-          <span className="font-headline text-base font-bold tracking-tight md:text-lg">Heritage Trust Bank</span>
+          <span className="font-headline text-base font-bold tracking-tight md:text-lg">Central Bank of India</span>
         </button>
         <div className="flex items-center gap-4">
           {username && <span className="hidden text-sm text-on-primary-container md:block">{username}</span>}

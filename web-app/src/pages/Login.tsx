@@ -10,6 +10,7 @@ import {
   login,
   setSessionToken,
 } from "../api";
+import logo from "../assets/logo.jpeg";
 import CalibrationBanner from "../components/CalibrationBanner";
 import ChannelSwitcher from "../components/ChannelSwitcher";
 import ConsentToggle from "../components/ConsentToggle";
@@ -82,17 +83,31 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background-custom font-sans">
-      <div className="flex flex-grow items-center justify-center px-4 py-12 md:px-8">
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-background-custom font-sans">
+      {/* Subtle background pattern -- CSS-only, no external photo */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0 opacity-10"
+        style={{ backgroundImage: "radial-gradient(circle at 2px 2px, #c1c7d3 1px, transparent 0)", backgroundSize: "24px 24px" }}
+      />
+
+      {lastResult && (
+        <div className="z-10 w-full px-4 pt-4">
+          <div className="mx-auto max-w-6xl">
+            <TrustBadge trustScore={lastResult.trust_score} behaviorMatch={lastResult.behavior_match_score} />
+          </div>
+        </div>
+      )}
+
+      <div className="z-10 flex flex-grow items-center justify-center px-4 py-12 md:px-8">
         <div className="flex w-full max-w-6xl flex-col items-center justify-center gap-8 lg:flex-row">
           {/* Login card */}
-          <div className="w-full max-w-[440px] rounded-xl border border-outline-variant bg-surface-container-lowest p-8 shadow-xl md:p-10">
+          <div className="w-full max-w-[440px] rounded-xl border border-outline-variant bg-surface-container-lowest p-8 shadow-xl transition-transform duration-300 hover:scale-[1.01] md:p-10">
             <div className="mb-8 flex flex-col items-center">
-              <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary text-xl font-bold text-on-primary">
-                HT
+              <span className="mb-4 flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-white p-2 shadow-md">
+                <img src={logo} alt="Central Bank of India" className="h-full w-full object-contain" />
               </span>
               <h1 className="font-headline text-2xl font-bold tracking-tight text-primary">
-                Heritage Trust Bank
+                Central Bank of India
               </h1>
               <p className="mt-1 text-center text-xs font-medium uppercase tracking-widest text-on-surface-variant">
                 Secure Portal Access
@@ -178,12 +193,7 @@ export default function Login() {
               </button>
             </form>
 
-            {lastResult && (
-              <>
-                <CalibrationBanner progress={lastResult.enrollment} />
-                <TrustBadge trustScore={lastResult.trust_score} behaviorMatch={lastResult.behavior_match_score} />
-              </>
-            )}
+            {lastResult && <CalibrationBanner progress={lastResult.enrollment} />}
 
             <div className="mt-6 border-t border-outline-variant pt-4">
               <ConsentToggle username={username} />
@@ -219,6 +229,8 @@ export default function Login() {
         <button className="font-medium hover:text-primary">English</button>
         <span className="text-outline-variant">|</span>
         <button className="font-medium hover:text-primary">हिंदी</button>
+        <span className="text-outline-variant">|</span>
+        <button className="font-medium hover:text-primary">मराठी</button>
       </div>
     </div>
   );

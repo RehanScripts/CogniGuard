@@ -58,11 +58,77 @@ private fun escapeString(s: String): String {
     return sb.toString()
 }
 
+/**
+ * Python `repr(float)` / `json.dumps` formatting -- NOT plain `Double.toString()`.
+ *
+ * Both Java and Python choose the same *shortest round-tripping* decimal digits for a
+ * given double (this is the well-known convergence point of every modern
+ * shortest-round-trip algorithm, Java's included), but they disagree on *presentation*:
+ * Java switches to scientific notation outside `[1e-3, 1e7)`, uses an uppercase `E`, and
+ * never signs/pads the exponent (`"2.46E-25"`); Python switches outside
+ * `(1e-4, 1e16]`, uses lowercase `e`, and always signs the exponent with a >=2-digit pad
+ * (`"2.46e-25"`). A telemetry feature that lands in the gap between those two
+ * thresholds (e.g. a near-zero accelerometer-variance reading on an emulator,
+ * `2.456228868932351e-25`) renders differently on each side, corrupting the HMAC the
+ * gateway recomputes from its own (Python) canonicalization. Fixed by re-deriving
+ * Java's chosen digits + decimal-point position from its own `toString()` output, then
+ * re-rendering them with Python's notation rules instead of Java's.
+ */
+internal fun pythonFloatRepr(value: Double): String {
+    if (value == 0.0) return if (1.0 / value < 0) "-0.0" else "0.0"
+    val negative = value < 0
+    val javaStr = Math.abs(value).toString()
+
+    val digits: String
+    val decpt: Int
+    val eIdx = javaStr.indexOf('E')
+    if (eIdx >= 0) {
+        val mantissa = javaStr.substring(0, eIdx)
+        val exp = javaStr.substring(eIdx + 1).toInt()
+        val dotIdx = mantissa.indexOf('.')
+        val intPart = mantissa.substring(0, dotIdx)
+        val fracPart = mantissa.substring(dotIdx + 1)
+        val allDigits = (intPart + fracPart).trimEnd('0')
+        digits = allDigits.ifEmpty { "0" }
+        decpt = intPart.length + exp
+    } else {
+        val dotIdx = javaStr.indexOf('.')
+        val intPart = javaStr.substring(0, dotIdx)
+        val fracPart = javaStr.substring(dotIdx + 1)
+        if (intPart == "0") {
+            val leadingZeros = fracPart.indexOfFirst { it != '0' }.let { if (it < 0) fracPart.length else it }
+            val allDigits = fracPart.substring(leadingZeros).trimEnd('0')
+            digits = allDigits.ifEmpty { "0" }
+            decpt = -leadingZeros
+        } else {
+            val allDigits = (intPart + fracPart).trimEnd('0')
+            digits = allDigits.ifEmpty { "0" }
+            decpt = intPart.length
+        }
+    }
+
+    val sign = if (negative) "-" else ""
+    return when {
+        decpt <= -4 || decpt > 16 -> {
+            // Python scientific notation: lowercase `e`, always-signed, >=2-digit exponent.
+            val mantissaDigits = if (digits.length == 1) digits + "0" else digits
+            val mantissaStr = "${mantissaDigits[0]}.${mantissaDigits.substring(1)}"
+            val exp = decpt - 1
+            val expSign = if (exp < 0) "-" else "+"
+            val expAbs = Math.abs(exp).toString().padStart(2, '0')
+            "$sign${mantissaStr}e$expSign$expAbs"
+        }
+        decpt <= 0 -> "${sign}0." + "0".repeat(-decpt) + digits
+        decpt >= digits.length -> "$sign$digits" + "0".repeat(decpt - digits.length) + ".0"
+        else -> "$sign${digits.substring(0, decpt)}.${digits.substring(decpt)}"
+    }
+}
+
 fun canonical(value: CanonicalValue): String =
     when (value) {
         is CanonicalValue.Null -> "null"
         is CanonicalValue.Str -> escapeString(value.value)
-        is CanonicalValue.Num -> value.value.toString()
+        is CanonicalValue.Num -> pythonFloatRepr(value.value)
         is CanonicalValue.Arr -> "[" + value.items.joinToString(",") { canonical(it) } + "]"
         is CanonicalValue.Obj -> {
             val sortedKeys = value.entries.keys.sorted()

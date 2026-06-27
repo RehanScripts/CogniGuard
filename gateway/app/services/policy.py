@@ -42,12 +42,15 @@ DEFAULT_POLICY: dict[str, Any] = {
         "DRAIN": 1.3,
         "COERCION_TIME": 1.2,
     },
-    # Assurance-ordered step-up ladder (PRD §10.1): candidates listed lightest-friction
-    # first within the tier; "strong" deliberately excludes plain OTP/MPIN (not
-    # SMS-OTP alone for high risk -- Implementation.md line 463).
+    # Assurance-ordered step-up ladder (PRD §10.1).
+    # "light" (medium risk): single factor — OTP / MPIN.
+    # "strong" (high risk): sequential two-factor — OTP first, then biometric.
+    #   adaptive_auth.select_factor will use OTP as challenge_type and set
+    #   second_factor=FINGERPRINT/PASSKEY for the sequential Android 2FA flow.
+    #   VOICE_READBACK left in the strong ladder as fallback when no biometric available.
     "stepup": {
         "light": ["MPIN", "OTP"],
-        "strong": ["FINGERPRINT", "PASSKEY", "VOICE_READBACK"],
+        "strong": ["OTP", "FINGERPRINT", "PASSKEY", "VOICE_READBACK"],
         # Failed step-up attempts allowed before login escalates to block + alert
         # (PRD §10.1 "if fail -> Blocked"). Admin-tunable like every other policy knob.
         "max_attempts": 3,

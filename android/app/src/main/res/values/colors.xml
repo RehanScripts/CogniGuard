@@ -3,6 +3,7 @@
     <color name="cbi_primary">#00569C</color>
     <color name="cbi_primary_dark">#004B87</color>
     <color name="cbi_primary_light">#EBF1FF</color>
+    <color name="cbi_primary_light_accent">#176FC1</color>
     <color name="cbi_accent">#BA0035</color>
     <color name="cbi_accent_light">#FFDADA</color>
     <color name="cbi_surface">#F8F9FA</color>
@@ -12,5 +13,7 @@
     <color name="warning_amber">#B36B00</color>
     <color name="success_green">#1A8F4C</color>
     <color name="success_green_light">#E5F5EC</color>
+    <color name="cbi_neutral">#717783</color>
+    <color name="cbi_neutral_light">#EEF0F2</color>
     <color name="white">#FFFFFF</color>
 </resources>

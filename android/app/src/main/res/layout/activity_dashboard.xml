@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Customer banking home screen (Phase 31): welcome card, balance, quick actions,
-     recent transactions — parity with web-app/src/pages/Dashboard.tsx, backed by the
-     same real `/api/v1/banking/*` read endpoints (no risk/trust telemetry here). -->
+     recent transactions; parity with web-app/src/pages/Dashboard.tsx, backed by the
+     same real `/api/v1/banking/*` read endpoints (no risk/trust telemetry here).
+     Reskinned (Phase 31 CBI reference): gradient balance card, rounded-tile quick
+     actions, floating quick-transfer action; ids unchanged, same Kotlin wiring. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -11,126 +13,159 @@
 
     <include layout="@layout/partial_header" />
 
-    <ScrollView
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <LinearLayout
+        <ScrollView
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
+            android:layout_height="match_parent">
 
-            <TextView
-                android:id="@+id/dashboardStatusText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:textColor="@color/cbi_text_muted"
-                android:textSize="13sp" />
-
-            <!-- Welcome + balance card -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                app:cardCornerRadius="14dp"
-                app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/cbi_primary">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="20dp">
-
-                    <TextView
-                        android:id="@+id/welcomeText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Welcome back"
-                        android:textColor="@color/white"
-                        android:textSize="16sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/balanceText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:text="--"
-                        android:textColor="@color/white"
-                        android:textSize="30sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/accountSummaryText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:textColor="@color/cbi_primary_light"
-                        android:textSize="13sp" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- Quick actions -->
             <LinearLayout
-                android:id="@+id/quickActionsRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:orientation="horizontal"
-                android:gravity="center" />
+                android:orientation="vertical"
+                android:padding="16dp">
 
-            <!-- Recent transactions -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                app:cardCornerRadius="14dp"
-                app:cardElevation="1dp"
-                app:cardBackgroundColor="@color/white">
-
-                <LinearLayout
+                <TextView
+                    android:id="@+id/dashboardStatusText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="18dp">
+                    android:layout_marginBottom="8dp"
+                    android:textColor="@color/cbi_text_muted"
+                    android:textSize="13sp" />
+
+                <!-- Welcome + balance card (gradient, reference parity) -->
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_gradient_balance_card">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
+                        android:orientation="vertical"
+                        android:padding="20dp">
 
                         <TextView
-                            android:layout_width="0dp"
+                            android:id="@+id/welcomeText"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Recent transactions"
-                            android:textColor="@color/cbi_text"
+                            android:text="Welcome back"
+                            android:textColor="@color/white"
                             android:textSize="16sp"
                             android:textStyle="bold" />
 
                         <TextView
-                            android:id="@+id/viewAllTransactionsLink"
-                            android:layout_width="wrap_content"
+                            android:id="@+id/balanceText"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="View all"
-                            android:textColor="@color/cbi_primary"
-                            android:textSize="13sp"
-                            android:clickable="true"
-                            android:focusable="true" />
+                            android:layout_marginTop="12dp"
+                            android:text="--"
+                            android:textColor="@color/white"
+                            android:textSize="30sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/accountSummaryText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:textColor="@color/cbi_primary_light"
+                            android:textSize="13sp" />
                     </LinearLayout>
+                </FrameLayout>
+
+                <!-- Quick actions -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:letterSpacing="0.05"
+                    android:text="QUICK ACTIONS"
+                    android:textAllCaps="true"
+                    android:textColor="@color/cbi_text_muted"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/quickActionsRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal"
+                    android:gravity="center" />
+
+                <!-- Recent transactions -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="1dp"
+                    app:cardBackgroundColor="@color/white">
 
                     <LinearLayout
-                        android:id="@+id/recentTransactionsContainer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:orientation="vertical" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                        android:orientation="vertical"
+                        android:padding="18dp">
 
-        </LinearLayout>
-    </ScrollView>
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="Recent transactions"
+                                android:textColor="@color/cbi_text"
+                                android:textSize="16sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/viewAllTransactionsLink"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="View all"
+                                android:textColor="@color/cbi_primary"
+                                android:textSize="13sp"
+                                android:clickable="true"
+                                android:focusable="true" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:id="@+id/recentTransactionsContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:orientation="vertical" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Bottom padding so content never sits under the FAB -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="72dp" />
+
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- Floating quick-transfer entry point (reference parity); same goToTransfer() as
+             the "Transfer" quick-action tile, just a second affordance, no new navigation. -->
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/quickTransferFab"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="20dp"
+            android:contentDescription="Quick transfer"
+            android:src="@drawable/ic_send"
+            app:backgroundTint="@color/cbi_primary"
+            app:tint="@color/white" />
+
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
 </LinearLayout>

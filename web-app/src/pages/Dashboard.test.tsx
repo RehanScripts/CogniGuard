@@ -4,9 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import Dashboard from "./Dashboard";
 
-const { getProfileMock, listAccountsMock } = vi.hoisted(() => ({
+const { getProfileMock, listAccountsMock, listTransactionsMock } = vi.hoisted(() => ({
   getProfileMock: vi.fn(),
   listAccountsMock: vi.fn(),
+  listTransactionsMock: vi.fn(),
 }));
 vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
@@ -15,6 +16,7 @@ vi.mock("../api", async () => {
     getSessionToken: () => "fake-token",
     getProfile: getProfileMock,
     listAccounts: listAccountsMock,
+    listTransactions: listTransactionsMock,
   };
 });
 
@@ -36,6 +38,7 @@ describe("Dashboard", () => {
         },
       ],
     });
+    listTransactionsMock.mockResolvedValue({ status: 200, body: [] });
 
     render(
       <MemoryRouter initialEntries={["/dashboard"]}>
@@ -51,6 +54,7 @@ describe("Dashboard", () => {
   it("shows an empty-accounts message when the customer has no accounts", async () => {
     getProfileMock.mockResolvedValue({ status: 200, body: { account_status: "ACTIVE" } });
     listAccountsMock.mockResolvedValue({ status: 200, body: [] });
+    listTransactionsMock.mockResolvedValue({ status: 200, body: [] });
 
     render(
       <MemoryRouter initialEntries={["/dashboard"]}>

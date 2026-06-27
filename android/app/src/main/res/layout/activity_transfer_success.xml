@@ -168,14 +168,13 @@
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/doneButton"
+                style="@style/Widget.CogniGuard.PillButton"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="52dp"
                 android:layout_marginTop="28dp"
-                android:backgroundTint="@color/cbi_primary"
-                android:text="Done"
-                android:textColor="@color/white" />
+                android:text="Done" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

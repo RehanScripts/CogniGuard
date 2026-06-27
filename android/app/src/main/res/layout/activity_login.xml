@@ -1,92 +1,478 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Parity with web-app/src/pages/Login.tsx (Implementation.md Phase 18): username,
-     password, sign-in button, status line. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+     password, sign-in button, status line. Reskinned (Phase 31 CBI reference) to a
+     centered rounded card with pill inputs/button; ids unchanged, same Kotlin wiring.
+
+     Re-auth panel (Phase adaptive): shown when action=verify; hidden by default.
+     Covers: risk badge, OTP entry, biometric button, 2FA step indicator, cancel. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@color/cbi_surface">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="@color/cbi_primary"
-        android:padding="16dp">
-
-        <TextView
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:background="@drawable/bg_logo_circle"
-            android:gravity="center"
-            android:text="HT"
-            android:textColor="@color/cbi_primary"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:text="@string/app_name"
-            android:textColor="@color/white"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-    </LinearLayout>
+    android:background="@color/cbi_surface"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:gravity="center"
         android:orientation="vertical"
         android:padding="24dp">
 
-        <EditText
-            android:id="@+id/usernameInput"
+        <!-- ==================== LOGIN FORM CARD ==================== -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/loginCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Username"
-            android:inputType="text"
-            android:text="genuine" />
+            app:cardCornerRadius="20dp"
+            app:cardElevation="3dp"
+            app:cardBackgroundColor="@color/white">
 
-        <EditText
-            android:id="@+id/passwordInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="Password"
-            android:inputType="textPassword" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="28dp">
 
-        <Button
-            android:id="@+id/loginButton"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="24dp"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:layout_width="72dp"
+                        android:layout_height="72dp"
+                        android:layout_marginBottom="12dp"
+                        android:background="@drawable/bg_logo_circle"
+                        android:contentDescription="@string/app_name"
+                        android:padding="14dp"
+                        android:src="@drawable/logo" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/app_name"
+                        android:textColor="@color/cbi_primary"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:letterSpacing="0.1"
+                        android:text="Secure Portal Access"
+                        android:textAllCaps="true"
+                        android:textColor="@color/cbi_text_muted"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Username"
+                    android:textColor="@color/cbi_text_muted"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    app:boxCornerRadiusBottomEnd="14dp"
+                    app:boxCornerRadiusBottomStart="14dp"
+                    app:boxCornerRadiusTopEnd="14dp"
+                    app:boxCornerRadiusTopStart="14dp"
+                    app:boxStrokeColor="@color/cbi_primary"
+                    app:startIconDrawable="@drawable/ic_person"
+                    app:startIconTint="@color/cbi_text_muted">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/usernameInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Enter username"
+                        android:inputType="text"
+                        android:text="genuine" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="Password"
+                    android:textColor="@color/cbi_text_muted"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    app:boxCornerRadiusBottomEnd="14dp"
+                    app:boxCornerRadiusBottomStart="14dp"
+                    app:boxCornerRadiusTopEnd="14dp"
+                    app:boxCornerRadiusTopStart="14dp"
+                    app:boxStrokeColor="@color/cbi_primary"
+                    app:endIconMode="password_toggle"
+                    app:startIconDrawable="@drawable/ic_lock"
+                    app:startIconTint="@color/cbi_text_muted">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/passwordInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Enter password"
+                        android:inputType="textPassword" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/loginButton"
+                    style="@style/Widget.CogniGuard.PillButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="20dp"
+                    android:text="Login" />
+
+                <TextView
+                    android:id="@+id/statusText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:gravity="center"
+                    android:textColor="@color/cbi_accent"
+                    android:textSize="13sp" />
+
+                <!-- "Security Profile Calibration N/10" banner : enrollment progress (Phase 21). -->
+                <TextView
+                    android:id="@+id/calibrationText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center"
+                    android:textColor="@color/cbi_primary_dark"
+                    android:textSize="12sp" />
+
+                <!-- Identity-gated Trust Score + behavior match (Phase 20-22). -->
+                <TextView
+                    android:id="@+id/trustText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center"
+                    android:textColor="@color/cbi_text"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ==================== RE-AUTHENTICATION PANEL ==================== -->
+        <!-- Shown when action=verify (medium or high risk). Initially GONE. -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/reAuthCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:backgroundTint="@color/cbi_primary"
-            android:text="Sign in"
-            android:textColor="@color/white" />
+            android:layout_marginTop="20dp"
+            android:visibility="gone"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="6dp"
+            app:cardBackgroundColor="@color/white">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="24dp">
+
+                <!-- Risk level badge row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
+
+                    <!-- Shield icon -->
+                    <TextView
+                        android:id="@+id/reAuthShieldIcon"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:background="@drawable/bg_tile_rounded_primary"
+                        android:gravity="center"
+                        android:text="🛡"
+                        android:textSize="18sp" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Additional Verification Required"
+                            android:textColor="@color/cbi_text"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <!-- Risk band label — updated programmatically -->
+                        <TextView
+                            android:id="@+id/reAuthRiskLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="Risk Level: Medium"
+                            android:textSize="12sp"
+                            android:textColor="@color/cbi_accent" />
+                    </LinearLayout>
+
+                    <!-- Risk badge chip -->
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/reAuthRiskBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="MEDIUM"
+                        android:textSize="10sp"
+                        android:textColor="@color/white"
+                        app:chipBackgroundColor="@color/cbi_accent"
+                        app:chipCornerRadius="12dp" />
+                </LinearLayout>
+
+                <!-- Reason text -->
+                <TextView
+                    android:id="@+id/reAuthReasonText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:background="#FFF8F0"
+                    android:padding="12dp"
+                    android:text="Our security system detected unusual patterns in this session. Please complete the verification steps below to continue."
+                    android:textColor="@color/cbi_text_muted"
+                    android:textSize="12sp" />
+
+                <!-- Step indicator (for 2FA: Step 1/2 OTP → Step 2/2 Biometric) -->
+                <LinearLayout
+                    android:id="@+id/reAuthStepRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="16dp"
+                    android:visibility="gone">
+
+                    <!-- Step 1 bubble -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/reAuthStep1Bubble"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:background="@drawable/bg_tile_rounded_primary"
+                            android:gravity="center"
+                            android:text="1"
+                            android:textColor="@color/white"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="OTP"
+                            android:textColor="@color/cbi_primary"
+                            android:textSize="10sp" />
+                    </LinearLayout>
+
+                    <!-- Connector line -->
+                    <View
+                        android:id="@+id/reAuthStepLine"
+                        android:layout_width="48dp"
+                        android:layout_height="2dp"
+                        android:layout_marginHorizontal="8dp"
+                        android:background="@color/cbi_text_muted" />
+
+                    <!-- Step 2 bubble -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/reAuthStep2Bubble"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:background="@drawable/bg_tile_rounded_accent"
+                            android:gravity="center"
+                            android:text="2"
+                            android:textColor="@color/white"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:alpha="0.4" />
+
+                        <TextView
+                            android:id="@+id/reAuthStep2Label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="Biometric"
+                            android:textColor="@color/cbi_text_muted"
+                            android:textSize="10sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- OTP Entry Section -->
+                <LinearLayout
+                    android:id="@+id/reAuthOtpSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="One-Time Password"
+                        android:textColor="@color/cbi_text_muted"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="6dp" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:boxCornerRadiusBottomEnd="14dp"
+                        app:boxCornerRadiusBottomStart="14dp"
+                        app:boxCornerRadiusTopEnd="14dp"
+                        app:boxCornerRadiusTopStart="14dp"
+                        app:boxStrokeColor="@color/cbi_primary"
+                        app:startIconDrawable="@drawable/ic_lock"
+                        app:startIconTint="@color/cbi_text_muted"
+                        app:helperText="Demo OTP: 123456">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/reAuthOtpInput"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="Enter 6-digit OTP"
+                            android:inputType="number"
+                            android:maxLength="6"
+                            android:letterSpacing="0.3"
+                            android:textSize="18sp"
+                            android:gravity="center" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/reAuthOtpSubmitButton"
+                        style="@style/Widget.CogniGuard.PillButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="12dp"
+                        android:text="Verify OTP" />
+                </LinearLayout>
+
+                <!-- Biometric Prompt Section -->
+                <LinearLayout
+                    android:id="@+id/reAuthBiometricSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/reAuthBiometricTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Biometric Verification"
+                        android:textColor="@color/cbi_text_muted"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="8dp" />
+
+                    <!-- Fingerprint icon button -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/reAuthFingerprintButton"
+                            style="@style/Widget.CogniGuard.PillButton"
+                            android:layout_width="0dp"
+                            android:layout_height="52dp"
+                            android:layout_weight="1"
+                            android:text="🖐 Fingerprint"
+                            android:layout_marginEnd="6dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/reAuthFaceButton"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="52dp"
+                            android:layout_weight="1"
+                            android:text="😊 Face ID"
+                            android:layout_marginStart="6dp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Verification status (error/success messages) -->
+                <TextView
+                    android:id="@+id/reAuthStatusText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center"
+                    android:textSize="13sp"
+                    android:textColor="@color/cbi_accent"
+                    android:visibility="gone" />
+
+                <!-- Retry count (shown after first failure) -->
+                <TextView
+                    android:id="@+id/reAuthRetryText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center"
+                    android:textSize="11sp"
+                    android:textColor="@color/cbi_text_muted"
+                    android:visibility="gone" />
+
+                <!-- Cancel / return to login -->
+                <TextView
+                    android:id="@+id/reAuthCancelLink"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:gravity="center"
+                    android:text="Cancel and return to login"
+                    android:textColor="@color/cbi_primary"
+                    android:textSize="12sp"
+                    android:textStyle="italic" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
         <TextView
-            android:id="@+id/statusText"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:textColor="@color/cbi_accent" />
-
-        <!-- "Security Profile Calibration N/10" banner : enrollment progress (Phase 21). -->
-        <TextView
-            android:id="@+id/calibrationText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:textColor="@color/cbi_primary_dark" />
-
-        <!-- Identity-gated Trust Score + behavior match (Phase 20-22). -->
-        <TextView
-            android:id="@+id/trustText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textColor="@color/cbi_text" />
+            android:layout_marginTop="24dp"
+            android:letterSpacing="0.15"
+            android:text="SECURE CONNECT"
+            android:textAllCaps="true"
+            android:textColor="@color/cbi_text_muted"
+            android:textSize="10sp" />
     </LinearLayout>
-</LinearLayout>
+</ScrollView>

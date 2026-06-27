@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { getSessionToken } from "../api";
 import AppHeader from "../components/AppHeader";
+import Footer from "../components/Footer";
 import Payment from "./Payment";
 
 // Route shell for the money-movement area of the app: starts continuous re-scoring
@@ -30,9 +31,9 @@ export default function Transfer() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-background-custom">
+    <div className="flex min-h-screen flex-col bg-background-custom">
       <AppHeader username={username} />
-      <div className="mx-auto mt-8 max-w-md px-4">
+      <div className="mx-auto mt-8 w-full max-w-md flex-1 px-4">
         <button
           type="button"
           className="mb-4 text-sm font-medium text-primary"
@@ -42,6 +43,7 @@ export default function Transfer() {
         </button>
         <Payment />
       </div>
+      <Footer />
     </div>
   );
 }

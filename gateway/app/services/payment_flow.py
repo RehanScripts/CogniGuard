@@ -24,18 +24,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from ..models.beneficiary import Beneficiary, UserBeneficiary
+from ..models.scoring import AuthChallenge
 from ..models.session import Session as SessionModel
 from ..models.transaction import Transaction
 from ..models.user import Account, User
 from ..schemas.features import FeatureReadContext
-from ..schemas.payment import PaymentScoreRequest, PaymentScoreResponse
+from ..schemas.payment import (
+    PaymentScoreRequest,
+    PaymentScoreResponse,
+    PaymentStepUpVerifyRequest,
+)
 from ..schemas.scoring import ReasonCode
 from ..scoring import shadow, stack
 from ..scoring.amplifiers import NEW_PAYEE_AMOUNT_RATIO, TxnContext
 from ..scoring.registry import Registry
 from ..utils import fingerprint
 from . import audit, case_mgmt, event_producer, feature_reader, integrity
-from .adaptive_auth import select_factor
+from .adaptive_auth import accepts_assertion, select_factor
 from .decision_engine import decide
 from .policy import active_policy
 from .txn_fraud_layer import resolve_controls
@@ -49,6 +54,10 @@ def _now() -> dt.datetime:
 
 def _k_session_risk(session_id: str) -> str:
     return f"session:risk:{session_id}"
+
+
+def _k_txn_stepup(challenge_id: str) -> str:
+    return f"txn_stepup:{challenge_id}"
 
 
 def _k_new_payees_recent(user_id: str) -> str:
@@ -222,6 +231,10 @@ def score_payment(
     step_up = None
     if decision.action == "verify":
         step_up = select_factor(decision.assurance or "light", None, policy["stepup"])
+        challenge = AuthChallenge(challenge_type=step_up.challenge_type, status="issued")
+        db.add(challenge)
+        db.flush()
+        step_up.challenge_id = str(challenge.challenge_id)
 
     txn_controls = resolve_controls(result.risk_band, result.amplifiers, txn_ctx, policy)
     # decision_engine's RISK_ACTION_MATRIX cooling_off/reconfirm cells (e.g. low risk +
@@ -282,6 +295,24 @@ def score_payment(
         behavior_score_source=result.behavior_score_source,
         device_trust=result.device_score,
     )
+
+    if decision.action == "verify" and step_up is not None:
+        # Mirrors auth_flow.login's `stepup:{id}` blob: carries everything needed to
+        # resolve this same pending transaction later (verify_payment_step_up) without
+        # re-deriving risk/controls/amplifiers -- the original score stands, only the
+        # action and the Transaction row's status flip on a successful step-up.
+        redis.set(
+            _k_txn_stepup(step_up.challenge_id),
+            json.dumps(
+                {
+                    "user_id": str(user.user_id),
+                    "transaction_id": str(transaction_id),
+                    "challenge_type": step_up.challenge_type,
+                    "response": response.model_dump(),
+                }
+            ),
+            ex=300,
+        )
 
     _write_session_risk(
         redis,
@@ -348,3 +379,80 @@ def score_payment(
         )
 
     return 200, response
+
+
+def verify_payment_step_up(
+    db: DbSession,
+    redis: Redis,
+    req: PaymentStepUpVerifyRequest,
+    *,
+    background_tasks: BackgroundTasks,
+) -> tuple[int, PaymentScoreResponse]:
+    """Resolves a pending transaction's step-up (Implementation.md Phase 7/8 parity with
+    `auth_flow.verify_step_up`): the original score stands -- only the action and the
+    `Transaction` row's status flip on success/exhaustion, nothing is re-scored."""
+    raw = redis.get(_k_txn_stepup(req.challenge_id))
+    if raw is None:
+        return 404, PaymentScoreResponse(
+            action="block",
+            entity_type="transaction",
+            risk_score=100.0,
+            risk_band="very_high",
+            reason_codes=[ReasonCode(code="CHALLENGE_NOT_FOUND")],
+        )
+    state = json.loads(raw)
+    stored_response = PaymentScoreResponse(**state["response"])
+    transaction_id = uuid.UUID(state["transaction_id"])
+    user_id = uuid.UUID(state["user_id"])
+    challenge_type = state["challenge_type"]
+
+    challenge = db.get(AuthChallenge, uuid.UUID(req.challenge_id))
+    passed = accepts_assertion(challenge_type, req.otp_or_assertion)
+
+    if not passed:
+        attempts = (challenge.attempts if challenge is not None else 0) + 1
+        if challenge is not None:
+            challenge.attempts = attempts
+        max_attempts = active_policy(redis=redis)["stepup"].get("max_attempts", 3)
+
+        if attempts >= max_attempts:
+            # Exhausted retries -> escalate to block + alert, same as login's step-up
+            # (PRD §10.1 "if fail -> Blocked").
+            if challenge is not None:
+                challenge.status = "failed"
+                challenge.resolved_at = _now()
+            transaction = db.get(Transaction, transaction_id)
+            if transaction is not None:
+                transaction.status = "blocked"
+                transaction.decision = "block"
+                transaction.completed_at = _now()
+            db.commit()
+            redis.delete(_k_txn_stepup(req.challenge_id))
+            background_tasks.add_task(
+                case_mgmt.maybe_open_case,
+                db,
+                user_id=user_id,
+                transaction_id=transaction_id,
+                risk_band="very_high",
+                action="block",
+                reason_codes=[{"code": "STEP_UP_EXHAUSTED"}],
+            )
+            return 401, stored_response.model_copy(update={"action": "block"})
+
+        db.commit()
+        return 401, stored_response.model_copy(update={"action": "verify"})
+
+    if challenge is not None:
+        challenge.status = "passed"
+        challenge.resolved_at = _now()
+
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is not None:
+        transaction.status = "allowed"
+        transaction.decision = "allow"
+        transaction.completed_at = _now()
+    db.commit()
+
+    redis.delete(_k_txn_stepup(req.challenge_id))
+
+    return 200, stored_response.model_copy(update={"action": "allow"})

@@ -8,17 +8,24 @@ specific score.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import uuid
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
+from app.db import SessionLocal
 from app.kafka_client import ping as kafka_ping
 from app.main import app
+from app.models.scoring import AuthChallenge
+from app.models.transaction import Transaction
+from app.models.user import User
 from app.redis_client import ping as redis_ping
 from app.redis_client import redis_client
 from app.s3_client import ping as s3_ping
 from app.schemas.behavior import ActionBlock, BehaviorPayload, DeviceInfo, KeyEvent, KeystrokeBlock
+from app.schemas.payment import PaymentScoreResponse
 from app.services import integrity
 
 pytestmark = pytest.mark.skipif(
@@ -50,6 +57,15 @@ def _signed_behavior(client: TestClient, *, seq: int, device_fp: str, action_typ
     )
     payload.integrity_sig = integrity.compute_signature(payload)
     return payload.model_dump()
+
+
+def _register_and_consent(client: TestClient, username: str, password: str) -> None:
+    r = client.post("/api/v1/auth/register", json={"username": username, "password": password})
+    assert r.status_code == 201, r.text
+    r2 = client.post(
+        "/api/v1/auth/consent", json={"username": username, "action": "GRANT", "consent_version": "v1"}
+    )
+    assert r2.status_code == 200, r2.text
 
 
 def _logged_in_token(client: TestClient, username: str, device_fp: str) -> str | None:
@@ -163,3 +179,117 @@ def test_payment_requires_bearer_auth(client):
         json={"amount": 100, "transfer_type": "UPI", "channel": "web", "behavior": behavior},
     )
     assert r.status_code in (401, 403)
+
+
+def _seed_pending_txn_stepup(username: str, *, challenge_type: str) -> tuple[str, str]:
+    """Seeds a pending transaction + its `AuthChallenge`/`txn_stepup:{id}` blob directly
+    (mirrors test_auth_flow.py's `test_step_up_verify_with_demo_otp_completes_login`
+    style of seeding state without going through a full score_payment run) -- returns
+    `(challenge_id, transaction_id)`."""
+    db = SessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.customer_ref == username))
+        transaction = Transaction(
+            user_id=user.user_id,
+            amount=95_000,
+            currency="INR",
+            transfer_type="UPI",
+            channel="web",
+            is_new_payee=True,
+            status="verified",
+            transaction_risk_score=72.0,
+            decision="verify",
+        )
+        db.add(transaction)
+        db.flush()
+        transaction_id = str(transaction.transaction_id)
+
+        challenge = AuthChallenge(challenge_type=challenge_type, status="issued")
+        db.add(challenge)
+        db.commit()
+        challenge_id = str(challenge.challenge_id)
+
+        stored_response = PaymentScoreResponse(
+            action="verify",
+            entity_type="transaction",
+            risk_score=72.0,
+            risk_band="high",
+            required_factors=[challenge_type],
+            base_score=72.0,
+        )
+        redis_client.set(
+            f"txn_stepup:{challenge_id}",
+            json.dumps(
+                {
+                    "user_id": str(user.user_id),
+                    "transaction_id": transaction_id,
+                    "challenge_type": challenge_type,
+                    "response": stored_response.model_dump(),
+                }
+            ),
+            ex=300,
+        )
+        return challenge_id, transaction_id
+    finally:
+        db.close()
+
+
+def test_payment_step_up_verify_with_demo_otp_allows_the_pending_transaction(client, username):
+    _register_and_consent(client, username, PASSWORD)
+    challenge_id, transaction_id = _seed_pending_txn_stepup(username, challenge_type="OTP")
+
+    bad = client.post(
+        "/api/v1/payment/step-up/verify",
+        json={"challenge_id": challenge_id, "otp_or_assertion": "000000"},
+    )
+    assert bad.status_code == 401
+    assert bad.json()["action"] == "verify"
+
+    good = client.post(
+        "/api/v1/payment/step-up/verify",
+        json={"challenge_id": challenge_id, "otp_or_assertion": "123456"},
+    )
+    assert good.status_code == 200
+    body = good.json()
+    assert body["action"] == "allow"
+    assert body["entity_type"] == "transaction"
+
+    db = SessionLocal()
+    try:
+        transaction = db.get(Transaction, uuid.UUID(transaction_id))
+        assert transaction.status == "allowed"
+        assert transaction.decision == "allow"
+    finally:
+        db.close()
+
+
+def test_payment_step_up_exhausted_attempts_blocks_the_pending_transaction(client, username):
+    """PRD §10.1 "if fail -> Blocked", transaction side: repeated step-up failures on a
+    pending transfer must escalate from a retryable `verify` to `block` once policy
+    `max_attempts` is hit, exactly like the login step-up path."""
+    _register_and_consent(client, username, PASSWORD)
+    challenge_id, transaction_id = _seed_pending_txn_stepup(username, challenge_type="FINGERPRINT")
+
+    # Default policy max_attempts=3: first two fail retryably, the third blocks.
+    first = client.post(
+        "/api/v1/payment/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": ""}
+    )
+    assert first.status_code == 401 and first.json()["action"] == "verify"
+    second = client.post(
+        "/api/v1/payment/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": ""}
+    )
+    assert second.status_code == 401 and second.json()["action"] == "verify"
+    third = client.post(
+        "/api/v1/payment/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": ""}
+    )
+    assert third.status_code == 401 and third.json()["action"] == "block"
+
+    assert redis_client.get(f"txn_stepup:{challenge_id}") is None
+
+    db = SessionLocal()
+    try:
+        transaction = db.get(Transaction, uuid.UUID(transaction_id))
+        assert transaction.status == "blocked"
+        assert transaction.decision == "block"
+    finally:
+        db.close()

@@ -1,8 +1,10 @@
+import { MonitorSmartphone, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { type SecuritySettingsOut, getSecuritySettings, getSessionToken } from "../api";
 import AppHeader from "../components/AppHeader";
+import Footer from "../components/Footer";
 
 export default function Security() {
   const navigate = useNavigate();
@@ -37,9 +39,9 @@ export default function Security() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-background-custom">
+    <div className="flex min-h-screen flex-col bg-background-custom">
       <AppHeader username={username} />
-      <div className="mx-auto mt-8 max-w-md px-4">
+      <div className="mx-auto mt-8 w-full max-w-md flex-1 px-4">
         <button
           type="button"
           className="mb-4 text-sm font-medium text-primary"
@@ -55,35 +57,54 @@ export default function Security() {
 
           {settings && (
             <>
-              <h2 className="mt-4 text-sm font-semibold text-on-surface-variant">Trusted devices</h2>
-              {settings.trusted_devices.length === 0 && (
-                <p className="mt-1 text-sm text-on-surface-variant">No trusted devices.</p>
+              <h2 className="mb-2 mt-5 text-xs font-bold uppercase tracking-wider text-on-surface-variant">Trusted devices</h2>
+              {settings.trusted_devices.length === 0 ? (
+                <p className="text-sm text-on-surface-variant">No trusted devices.</p>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-outline-variant">
+                  {settings.trusted_devices.map((d) => (
+                    <div key={d.device_id} className="flex items-center justify-between gap-3 border-t border-outline-variant px-3 py-3 first:border-t-0">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                          <MonitorSmartphone className="h-4 w-4" />
+                        </div>
+                        <span className="text-sm text-on-surface">{d.label ?? d.device_id}</span>
+                      </div>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                          d.is_trusted ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-on-surface-variant"
+                        }`}
+                      >
+                        {d.is_trusted ? "Trusted" : "Not trusted"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
-              <ul className="mt-2 space-y-2">
-                {settings.trusted_devices.map((d) => (
-                  <li key={d.device_id} className="flex justify-between border-t border-outline-variant pt-2 text-sm first:border-t-0 first:pt-0">
-                    <span className="text-on-surface">{d.label ?? d.device_id}</span>
-                    <span className="text-on-surface-variant">{d.is_trusted ? "Trusted" : "Not trusted"}</span>
-                  </li>
-                ))}
-              </ul>
 
-              <h2 className="mt-4 text-sm font-semibold text-on-surface-variant">Active sessions</h2>
-              {settings.active_sessions.length === 0 && (
-                <p className="mt-1 text-sm text-on-surface-variant">No active sessions.</p>
+              <h2 className="mb-2 mt-6 text-xs font-bold uppercase tracking-wider text-on-surface-variant">Active sessions</h2>
+              {settings.active_sessions.length === 0 ? (
+                <p className="text-sm text-on-surface-variant">No active sessions.</p>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-outline-variant">
+                  {settings.active_sessions.map((s) => (
+                    <div key={s.session_id} className="flex items-center justify-between gap-3 border-t border-outline-variant px-3 py-3 first:border-t-0">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                          <ShieldCheck className="h-4 w-4" />
+                        </div>
+                        <span className="text-sm text-on-surface">{s.device_label ?? s.session_id}</span>
+                      </div>
+                      <span className="text-xs text-on-surface-variant">{s.location ?? "--"}</span>
+                    </div>
+                  ))}
+                </div>
               )}
-              <ul className="mt-2 space-y-2">
-                {settings.active_sessions.map((s) => (
-                  <li key={s.session_id} className="flex justify-between border-t border-outline-variant pt-2 text-sm first:border-t-0 first:pt-0">
-                    <span className="text-on-surface">{s.device_label ?? s.session_id}</span>
-                    <span className="text-on-surface-variant">{s.location ?? "--"}</span>
-                  </li>
-                ))}
-              </ul>
             </>
           )}
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security config for CogniGuard demo app.
+
+  Explicitly permits cleartext (HTTP) to 127.0.0.1 and 10.0.2.2 (emulator host alias).
+  This works in conjunction with android:usesCleartextTraffic="true" in the manifest
+  and survives strict network policies on Android 9+ (API 28+) and Android 16 (API 36).
+
+  Production build: remove these domains and use HTTPS only.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- adb reverse tunnel: device loopback → host gateway -->
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <!-- Android emulator: host machine loopback alias -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <!-- Local development via hostname -->
+        <domain includeSubdomains="false">localhost</domain>
+        <!-- Host PC LAN IP (direct Wi-Fi access) -->
+        <domain includeSubdomains="false">10.22.36.33</domain>
+    </domain-config>
+</network-security-config>

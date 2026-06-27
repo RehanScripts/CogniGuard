@@ -4,165 +4,288 @@
      txn_controls fired. coercionPanel/manualAmountPanel mirror CoercionCheck.tsx and
      ManualAmountEntry.tsx, resolved locally against the same scorePayment response with
      no second backend call; cooling_until stays a plain notice line since CoolingNotice.tsx
-     has no confirm action either, it's just a hold. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+     has no confirm action either, it's just a hold.
+     Reskinned (Phase 31 CBI reference): pill input fields/buttons, large centered amount,
+     transfer-type chip row (now real, wired into the same scorePayment call, previously
+     hardcoded to "UPI"); ids unchanged, same Kotlin wiring for everything pre-existing. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@color/cbi_surface">
+    android:background="@color/cbi_surface"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="@color/cbi_primary"
-        android:padding="16dp">
+        android:orientation="vertical">
 
-        <TextView
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:background="@drawable/bg_logo_circle"
-            android:gravity="center"
-            android:text="HT"
-            android:textColor="@color/cbi_primary"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:text="@string/app_name"
-            android:textColor="@color/white"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:padding="24dp">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Transfer money"
-            android:textColor="@color/cbi_text"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-
-        <EditText
-            android:id="@+id/beneficiaryInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Beneficiary VPA (payee@upi)"
-            android:inputType="text" />
-
-        <EditText
-            android:id="@+id/amountInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="Amount (INR)"
-            android:inputType="numberDecimal" />
-
-        <Button
-            android:id="@+id/sendButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:backgroundTint="@color/cbi_primary"
-            android:text="Send"
-            android:textColor="@color/white" />
-
-        <TextView
-            android:id="@+id/resultText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:textColor="@color/cbi_text" />
-
-        <TextView
-            android:id="@+id/controlsText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textColor="@color/warning_amber" />
+        <include layout="@layout/partial_header" />
 
         <LinearLayout
-            android:id="@+id/coercionPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
             android:orientation="vertical"
-            android:visibility="gone">
+            android:padding="20dp">
 
             <TextView
-                android:id="@+id/coercionPrompt"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@color/cbi_accent"
+                android:text="Transfer money"
+                android:textColor="@color/cbi_text"
+                android:textSize="20sp"
                 android:textStyle="bold" />
 
-            <LinearLayout
+            <!-- Beneficiary VPA -->
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                app:boxCornerRadiusBottomEnd="14dp"
+                app:boxCornerRadiusBottomStart="14dp"
+                app:boxCornerRadiusTopEnd="14dp"
+                app:boxCornerRadiusTopStart="14dp"
+                app:boxStrokeColor="@color/cbi_primary">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/beneficiaryInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Beneficiary VPA (payee@upi)"
+                    android:inputType="text" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Large centered amount entry (reference parity) -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="0dp"
+                app:strokeColor="@color/cbi_divider"
+                app:strokeWidth="1dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="18dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.05"
+                        android:text="ENTER AMOUNT"
+                        android:textAllCaps="true"
+                        android:textColor="@color/cbi_text_muted"
+                        android:textSize="10sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="₹"
+                            android:textColor="@color/cbi_primary"
+                            android:textSize="28sp"
+                            android:textStyle="bold" />
+
+                        <EditText
+                            android:id="@+id/amountInput"
+                            android:layout_width="160dp"
+                            android:layout_height="wrap_content"
+                            android:background="@null"
+                            android:gravity="center"
+                            android:hint="0"
+                            android:inputType="numberDecimal"
+                            android:textColor="@color/cbi_text"
+                            android:textSize="28sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Transfer-type chips (real: selecting one changes the actual scorePayment call) -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:letterSpacing="0.05"
+                android:text="PAYMENT METHOD"
+                android:textAllCaps="true"
+                android:textColor="@color/cbi_text_muted"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/transferTypeChipGroup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:orientation="horizontal">
+                app:singleSelection="true">
 
-                <Button
-                    android:id="@+id/coercionCancelButton"
-                    android:layout_width="0dp"
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipImps"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:layout_weight="1"
-                    android:backgroundTint="@color/cbi_accent"
-                    android:text="Cancel -- I'm being told what to do"
-                    android:textColor="@color/white" />
+                    android:checked="true"
+                    android:text="IMPS" />
 
-                <Button
-                    android:id="@+id/coercionConfirmButton"
-                    android:layout_width="0dp"
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipNeft"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="No, this is genuinely me" />
-            </LinearLayout>
-        </LinearLayout>
+                    android:text="NEFT" />
 
-        <LinearLayout
-            android:id="@+id/manualAmountPanel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical"
-            android:visibility="gone">
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipRtgs"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="RTGS" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipUpi"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="UPI" />
+            </com.google.android.material.chip.ChipGroup>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/sendButton"
+                style="@style/Widget.CogniGuard.PillButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="20dp"
+                android:text="Send Money" />
 
             <TextView
+                android:id="@+id/resultText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Please re-type the amount to confirm this transfer."
-                android:textColor="@color/warning_amber"
-                android:textStyle="bold" />
+                android:layout_marginTop="16dp"
+                android:textColor="@color/cbi_text" />
 
-            <EditText
-                android:id="@+id/manualAmountInput"
+            <TextView
+                android:id="@+id/controlsText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:hint="Re-enter amount (INR)"
-                android:inputType="numberDecimal" />
+                android:textColor="@color/warning_amber" />
 
-            <Button
-                android:id="@+id/confirmAmountButton"
+            <!-- Coercion check: elevated red panel (reference parity) -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/coercionPanel"
+                style="@style/Widget.CogniGuard.RoundedCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:backgroundTint="@color/cbi_primary"
-                android:text="Confirm amount"
-                android:textColor="@color/white" />
+                android:layout_marginTop="12dp"
+                android:visibility="gone"
+                app:cardBackgroundColor="@color/cbi_accent_light"
+                app:strokeColor="@color/cbi_accent"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:id="@+id/coercionPrompt"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/cbi_accent"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:orientation="vertical">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/coercionCancelButton"
+                            style="@style/Widget.CogniGuard.PillButton.Accent"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:text="Cancel -- I'm being told what to do" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/coercionConfirmButton"
+                            style="@style/Widget.CogniGuard.PillButton.Outlined"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="8dp"
+                            android:text="No, this is genuinely me" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Manual amount re-entry: elevated amber panel (reference parity) -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/manualAmountPanel"
+                style="@style/Widget.CogniGuard.RoundedCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:visibility="gone"
+                app:cardBackgroundColor="#FFF8E1"
+                app:strokeColor="@color/warning_amber"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Please re-type the amount to confirm this transfer."
+                        android:textColor="@color/warning_amber"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        app:boxCornerRadiusBottomEnd="14dp"
+                        app:boxCornerRadiusBottomStart="14dp"
+                        app:boxCornerRadiusTopEnd="14dp"
+                        app:boxCornerRadiusTopStart="14dp">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/manualAmountInput"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="Re-enter amount (INR)"
+                            android:inputType="numberDecimal" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/confirmAmountButton"
+                        style="@style/Widget.CogniGuard.PillButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="10dp"
+                        android:text="Confirm amount" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
     </LinearLayout>
-</LinearLayout>
+</ScrollView>

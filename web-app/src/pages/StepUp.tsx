@@ -1,13 +1,22 @@
 import { CheckCircle, Clock, HelpCircle, Info, Shield } from "lucide-react";
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { Fragment, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { type ChallengeType, type StepUpChallenge, setSessionToken, verifyStepUp } from "../api";
+import {
+  type ChallengeType,
+  type StepUpChallenge,
+  setSessionToken,
+  verifyPaymentStepUp,
+  verifyStepUp,
+} from "../api";
 
 interface StepUpLocationState {
   challenge: StepUpChallenge | null;
   requiredFactors: string[];
   username: string;
+  // Login step-up (default) resumes a session via `session_token`; a transaction
+  // step-up instead resumes the same pending transfer -- no session involved.
+  entityType?: "login" | "transaction";
 }
 
 const OTP_LIKE: ChallengeType[] = ["OTP", "MPIN"];
@@ -49,11 +58,21 @@ export default function StepUp() {
   }
 
   const isOtpLike = OTP_LIKE.includes(challenge.challenge_type);
+  const entityType = state?.entityType ?? "login";
 
   const submit = async (assertion: string) => {
     setBusy(true);
     setError(null);
     try {
+      if (entityType === "transaction") {
+        const { body } = await verifyPaymentStepUp(challenge.challenge_id, assertion);
+        if (body.action === "allow") {
+          navigate("/transfer", { state: { username: state?.username, resolvedPayment: body } });
+          return;
+        }
+        setError(body.action === "block" ? "Verification failed -- transfer blocked." : "Incorrect code, try again.");
+        return;
+      }
       const { body } = await verifyStepUp(challenge.challenge_id, assertion);
       if (body.action === "allow" && body.session_token) {
         setSessionToken(body.session_token);
@@ -102,7 +121,9 @@ export default function StepUp() {
 
           <h1 className="font-headline mb-2 text-center text-2xl font-bold text-on-surface">Verify it's you</h1>
           <p className="mb-8 px-4 text-center text-xs leading-relaxed text-on-surface-variant">
-            Required factor: {challenge.challenge_type} ({challenge.assurance})
+            {isOtpLike
+              ? "We've sent a 6-digit verification code to your registered mobile number ending in •••• 8291."
+              : `Required factor: ${challenge.challenge_type} (${challenge.assurance})`}
           </p>
 
           {error && (
@@ -115,18 +136,22 @@ export default function StepUp() {
             <>
               <div className="mb-6 flex gap-2.5 md:gap-3" id="otp-container">
                 {otpFields.map((field, idx) => (
-                  <input
-                    key={idx}
-                    ref={(el) => (otpRefs.current[idx] = el)}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    disabled={busy}
-                    value={field}
-                    onChange={(e) => handleOtpChange(e.target.value, idx)}
-                    onKeyDown={(e) => handleOtpKeyDown(e, idx)}
-                    className="h-14 w-12 rounded-lg border border-outline-variant bg-white text-center text-xl font-bold outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
-                  />
+                  <Fragment key={idx}>
+                    <input
+                      ref={(el) => (otpRefs.current[idx] = el)}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      disabled={busy}
+                      value={field}
+                      onChange={(e) => handleOtpChange(e.target.value, idx)}
+                      onKeyDown={(e) => handleOtpKeyDown(e, idx)}
+                      className="h-14 w-12 rounded-lg border border-outline-variant bg-white text-center text-xl font-bold outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
+                    />
+                    {idx === 2 && (
+                      <div className="flex w-2 items-center justify-center font-extrabold text-outline-variant">-</div>
+                    )}
+                  </Fragment>
                 ))}
               </div>
 
@@ -165,10 +190,11 @@ export default function StepUp() {
             <button
               type="button"
               disabled={busy}
-              className="mb-6 w-full rounded-lg bg-primary py-3.5 text-sm font-bold text-on-primary shadow-md transition-all hover:bg-primary-container disabled:opacity-50"
+              className="mb-6 flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3.5 text-sm font-bold text-on-primary shadow-md transition-all hover:bg-primary-container disabled:opacity-50"
               onClick={() => void submit(`simulated-${challenge.challenge_type.toLowerCase()}`)}
             >
-              Simulate {challenge.challenge_type}
+              <Shield className="h-4 w-4" />
+              <span>{busy ? "Verifying..." : `Simulate ${challenge.challenge_type} Assertion`}</span>
             </button>
           )}
 
@@ -181,9 +207,12 @@ export default function StepUp() {
         </div>
 
         <div className="mt-6 flex justify-between px-2 text-xs">
-          <a href="/login" className="flex items-center gap-1 text-on-surface-variant hover:text-primary">
+          <a
+            href={entityType === "transaction" ? "/transfer" : "/login"}
+            className="flex items-center gap-1 text-on-surface-variant hover:text-primary"
+          >
             <HelpCircle className="h-4 w-4" />
-            <span>Return to login</span>
+            <span>{entityType === "transaction" ? "Return to transfer" : "Return to login"}</span>
           </a>
           <div className="flex items-center gap-1 text-on-surface-variant">
             <CheckCircle className="h-4 w-4 text-emerald-600" />
