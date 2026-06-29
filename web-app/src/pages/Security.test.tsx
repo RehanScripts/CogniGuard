@@ -48,7 +48,7 @@ describe("Security", () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(screen.getByText(/no trusted devices/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/no devices on record/i)).toBeInTheDocument());
     expect(screen.getByText(/no active sessions/i)).toBeInTheDocument();
   });
 });

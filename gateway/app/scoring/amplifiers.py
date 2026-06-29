@@ -33,6 +33,7 @@ NEW_PAYEE_AMOUNT_RATIO = 0.80  # ">80% daily-avg"
 RAPID_FANOUT_MIN_PAYEES = 3  # "≥N distinct new payees"
 DRAIN_BALANCE_RATIO = 0.90  # "≥90% balance"
 COERCION_DWELL_MS = 30_000  # "long pre-txn dwell"
+AMOUNT_SPIKE_RATIO = 3.0  # fires when amount > 3× the 30-day daily average
 
 
 def evaluate(txn_ctx: TxnContext, policy_amps: Mapping[str, float]) -> list[Amplifier]:
@@ -49,6 +50,18 @@ def evaluate(txn_ctx: TxnContext, policy_amps: Mapping[str, float]) -> list[Ampl
                 code="NEW_BENEF_HIGHVAL",
                 multiplier=policy_amps["NEW_BENEF_HIGHVAL"],
                 detail=f"payee added {txn_ctx.payee_age_minutes:.0f}min ago, amount exceeds 80% of daily avg",
+            )
+        )
+
+    if (
+        txn_ctx.daily_avg_amount > 0
+        and txn_ctx.amount > AMOUNT_SPIKE_RATIO * txn_ctx.daily_avg_amount
+    ):
+        fired.append(
+            Amplifier(
+                code="AMOUNT_SPIKE",
+                multiplier=policy_amps.get("AMOUNT_SPIKE", 1.4),
+                detail=f"amount is {txn_ctx.amount / txn_ctx.daily_avg_amount:.1f}× the 30-day daily average",
             )
         )
 

@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import ipaddress
+import uuid
 
+import jwt as pyjwt
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis import Redis
 from sqlalchemy.orm import Session as DbSession
 
 from .. import deps
+from ..models.session import Session as SessionModel
 from ..schemas.auth import (
     ConsentRequest,
+    EmailVerifyRequest,
     LoginRequest,
     NonceResponse,
     RegisterRequest,
@@ -19,6 +24,9 @@ from ..schemas.auth import (
 )
 from ..scoring.registry import Registry
 from ..services import auth_flow
+from ..utils import security
+
+_opt_bearer = HTTPBearer(auto_error=False)
 
 router = APIRouter()
 
@@ -48,12 +56,30 @@ def get_nonce(redis: Redis = Depends(deps.get_redis)) -> NonceResponse:
 
 
 @router.post("/register")
-def register(req: RegisterRequest, db: DbSession = Depends(deps.get_db)) -> JSONResponse:
+def register(
+    req: RegisterRequest,
+    background_tasks: BackgroundTasks,
+    db: DbSession = Depends(deps.get_db),
+    redis: Redis = Depends(deps.get_redis),
+) -> JSONResponse:
     try:
-        user = auth_flow.register(db, req)
+        user, challenge_id = auth_flow.initiate_registration(db, req, redis, background_tasks)
     except ValueError as exc:
         return JSONResponse({"detail": str(exc)}, status_code=409)
-    return JSONResponse({"user_id": str(user.user_id), "status": "created"}, status_code=201)
+    return JSONResponse(
+        {"user_id": str(user.user_id), "challenge_id": challenge_id, "status": "pending_email_verify"},
+        status_code=201,
+    )
+
+
+@router.post("/register/verify-email")
+def verify_registration_email(
+    req: EmailVerifyRequest,
+    db: DbSession = Depends(deps.get_db),
+    redis: Redis = Depends(deps.get_redis),
+) -> JSONResponse:
+    status_code, body = auth_flow.verify_registration_email(db, redis, req.challenge_id, req.otp_code)
+    return JSONResponse(body, status_code=status_code)
 
 
 @router.post("/consent")
@@ -84,6 +110,34 @@ def login(
         background_tasks=background_tasks,
     )
     return JSONResponse(response.model_dump(), status_code=status_code)
+
+
+@router.post("/logout", status_code=204)
+def logout(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_opt_bearer),
+    db: DbSession = Depends(deps.get_db),
+) -> None:
+    """Revoke the current session JWT (adds jti to Redis denylist) and mark the
+    Postgres session row as ended.  Idempotent — safe to call on an already-expired
+    token (nothing to revoke, just returns 204)."""
+    if credentials is None:
+        return
+    try:
+        claims = security.decode_jwt(credentials.credentials)
+    except pyjwt.PyJWTError:
+        return  # already expired — denylist entry would outlive the token anyway
+    jwt_id = claims.get("jti")
+    if jwt_id:
+        security.revoke(jwt_id)
+    session_id_str = claims.get("session_id")
+    if session_id_str:
+        try:
+            session = db.get(SessionModel, uuid.UUID(session_id_str))
+            if session and session.status == "active":
+                session.status = "ended"
+                db.commit()
+        except Exception:
+            pass
 
 
 @router.post("/step-up/verify")

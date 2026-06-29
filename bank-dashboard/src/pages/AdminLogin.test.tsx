@@ -38,6 +38,8 @@ describe("AdminLogin", () => {
       body: { token: "tok", analyst_id: "a1", role: "admin" },
     });
     renderAdminLogin();
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "admin@bank.in" } });
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "Passw0rd!" } });
     fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
     await waitFor(() => expect(screen.getByTestId("live-page")).toBeInTheDocument());
     expect(setAdminTokenMock).toHaveBeenCalledWith("tok");
@@ -46,6 +48,8 @@ describe("AdminLogin", () => {
   it("shows an error message on invalid credentials", async () => {
     adminLoginMock.mockResolvedValue({ status: 401, body: {} });
     renderAdminLogin();
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "admin@bank.in" } });
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "wrongpassword" } });
     fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
     await waitFor(() => expect(screen.getByText(/invalid email or password/i)).toBeInTheDocument());
   });

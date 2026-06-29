@@ -227,6 +227,14 @@ def _seed_beneficiary(user_id: uuid.UUID) -> uuid.UUID:
 
 
 def main() -> dict[str, str]:
+    # After a factory reset the endpoint sets this flag so the app stays user-free
+    # across container restarts — only policy and models are re-seeded.
+    if redis_client.exists("system:seed_disabled"):
+        logger.info("system:seed_disabled set — seeding policy+models only (factory-reset mode)")
+        _seed_policy()
+        _seed_models()
+        return {"seeding": "skipped_after_factory_reset"}
+
     _seed_policy()
     _seed_models()
     _seed_analysts()

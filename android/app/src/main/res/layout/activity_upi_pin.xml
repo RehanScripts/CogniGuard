@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive pre-UPI-PIN re-auth gate (UPGRADE_PLAN.md Phase B3): risk band is
+     checked via /behavior/ingest before showing the PIN entry form; the factor
+     ladder (none / biometric / OTP+biometric) is handled by UpiPinActivity.kt. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/cbi_surface"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <include layout="@layout/partial_header" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="UPI Payment"
+                android:textColor="@color/cbi_text"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <!-- Status / instruction line -->
+            <TextView
+                android:id="@+id/upiStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Verifying session security..."
+                android:textColor="@color/cbi_text_muted"
+                android:textSize="14sp" />
+
+            <!-- PIN entry card (shown only after factor verification) -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="0dp"
+                app:strokeColor="@color/cbi_divider"
+                app:strokeWidth="1dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.05"
+                        android:text="ENTER UPI PIN"
+                        android:textAllCaps="true"
+                        android:textColor="@color/cbi_text_muted"
+                        android:textSize="10sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        app:boxCornerRadiusBottomEnd="14dp"
+                        app:boxCornerRadiusBottomStart="14dp"
+                        app:boxCornerRadiusTopEnd="14dp"
+                        app:boxCornerRadiusTopStart="14dp"
+                        app:boxStrokeColor="@color/cbi_primary"
+                        app:passwordToggleEnabled="true">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/upiPinInput"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:enabled="false"
+                            android:hint="4–6 digit PIN"
+                            android:inputType="numberPassword"
+                            android:maxLength="6" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/upiPinConfirmButton"
+                style="@style/Widget.CogniGuard.PillButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="16dp"
+                android:enabled="false"
+                android:text="Confirm Payment" />
+
+            <!-- OTP verification card — shown when scorePayment returns verify+OTP factor -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/paymentOtpCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:visibility="gone"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="6dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="24dp">
+
+                    <!-- Header row: shield + title + badge -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:background="@drawable/bg_tile_rounded_primary"
+                            android:gravity="center"
+                            android:text="🛡"
+                            android:textSize="18sp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Payment Verification Required"
+                                android:textColor="@color/cbi_text"
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/paymentOtpRiskLabel"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="Risk Level: High"
+                                android:textColor="@color/cbi_accent"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/paymentOtpRiskBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="HIGH"
+                            android:textSize="10sp"
+                            android:textColor="@color/white"
+                            app:chipBackgroundColor="@color/cbi_accent"
+                            app:chipCornerRadius="12dp" />
+                    </LinearLayout>
+
+                    <!-- Reason box -->
+                    <TextView
+                        android:id="@+id/paymentOtpReasonText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="16dp"
+                        android:background="#FFF8F0"
+                        android:padding="12dp"
+                        android:text="CogniGuard has detected elevated risk for this transfer. An OTP has been sent to your registered email — enter it below to authorise the payment."
+                        android:textColor="@color/cbi_text_muted"
+                        android:textSize="12sp" />
+
+                    <!-- OTP input -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="One-Time Password"
+                        android:textColor="@color/cbi_text_muted"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="6dp" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:boxCornerRadiusBottomEnd="14dp"
+                        app:boxCornerRadiusBottomStart="14dp"
+                        app:boxCornerRadiusTopEnd="14dp"
+                        app:boxCornerRadiusTopStart="14dp"
+                        app:boxStrokeColor="@color/cbi_primary"
+                        app:startIconDrawable="@drawable/ic_lock"
+                        app:startIconTint="@color/cbi_text_muted">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/paymentOtpInput"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="Enter 6-digit OTP"
+                            android:inputType="number"
+                            android:maxLength="6"
+                            android:letterSpacing="0.3"
+                            android:textSize="18sp"
+                            android:gravity="center" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/paymentOtpSubmitButton"
+                        style="@style/Widget.CogniGuard.PillButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="12dp"
+                        android:text="Verify OTP" />
+
+                    <!-- Status / error feedback -->
+                    <TextView
+                        android:id="@+id/paymentOtpStatusText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:gravity="center"
+                        android:textSize="13sp"
+                        android:textColor="@color/cbi_accent"
+                        android:visibility="gone" />
+
+                    <!-- Cancel link -->
+                    <TextView
+                        android:id="@+id/paymentOtpCancelLink"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:gravity="center"
+                        android:text="Cancel transfer"
+                        android:textColor="@color/cbi_primary"
+                        android:textSize="12sp"
+                        android:textStyle="italic" />
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

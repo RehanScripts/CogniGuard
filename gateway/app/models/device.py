@@ -2,6 +2,7 @@ import datetime as dt
 import uuid
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import TEXT as PG_TEXT
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -49,3 +50,4 @@ class UserDevice(Base):
         DateTime(timezone=True), server_default=text("now()")
     )
     last_used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    public_key: Mapped[str | None] = mapped_column(Text)  # PEM RSA public key for KeyStore binding

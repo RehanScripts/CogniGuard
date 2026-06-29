@@ -18,6 +18,7 @@ from ..scoring.amplifiers import TxnContext
 # Which controls each amplifier forces on, independent of band.
 AMPLIFIER_CONTROLS: dict[str, dict[str, bool]] = {
     "NEW_BENEF_HIGHVAL": {"cooling": True, "manual_amount": True},
+    "AMOUNT_SPIKE": {"cooling": True, "manual_amount": True},
     "RAPID_FANOUT": {"reconfirm": True, "manual_amount": True},
     "DRAIN": {"cooling": True, "reconfirm": True, "manual_amount": True},
     "COERCION_TIME": {"coercion_check": True, "manual_amount": True},

@@ -1,6 +1,7 @@
 package com.cogniguard.demoapp
 
 import android.os.Bundle
+import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -49,10 +50,20 @@ class SecurityCenterActivity : AppCompatActivity() {
 
         val token = sessionToken
         if (token == null) {
-            statusText.text = "Session expired -- please log in again."
+            statusText.text = "Session expired — please log in again."
             return
         }
 
+        loadSecurityData(token, statusText, trustedDevicesContainer, activeSessionsContainer, lastLoginText)
+    }
+
+    private fun loadSecurityData(
+        token: String,
+        statusText: TextView,
+        trustedDevicesContainer: LinearLayout,
+        activeSessionsContainer: LinearLayout,
+        lastLoginText: TextView,
+    ) {
         CoroutineScope(Dispatchers.Main).launch {
             try {
                 val result = withContext(Dispatchers.IO) { client.getSecuritySettings(token) }
@@ -61,8 +72,24 @@ class SecurityCenterActivity : AppCompatActivity() {
                     trustedDevicesContainer.removeAllViews()
                     if (devices != null && devices.length() > 0) {
                         for (i in 0 until devices.length()) {
+                            val device = devices.getJSONObject(i)
                             if (i > 0) BankingViews.addDivider(this@SecurityCenterActivity, trustedDevicesContainer)
-                            BankingViews.addDeviceRow(this@SecurityCenterActivity, trustedDevicesContainer, devices.getJSONObject(i))
+                            BankingViews.addDeviceRow(
+                                this@SecurityCenterActivity,
+                                trustedDevicesContainer,
+                                device,
+                                onTrust = { deviceId ->
+                                    CoroutineScope(Dispatchers.Main).launch {
+                                        val res = withContext(Dispatchers.IO) { client.trustDevice(token, deviceId) }
+                                        if (res.status == 200) {
+                                            // Reload to reflect updated trust status
+                                            loadSecurityData(token, statusText, trustedDevicesContainer, activeSessionsContainer, lastLoginText)
+                                        } else {
+                                            statusText.text = "Could not trust device."
+                                        }
+                                    }
+                                }
+                            )
                         }
                     } else {
                         addEmptyRow(trustedDevicesContainer, "No trusted devices yet.")
@@ -72,8 +99,23 @@ class SecurityCenterActivity : AppCompatActivity() {
                     activeSessionsContainer.removeAllViews()
                     if (sessions != null && sessions.length() > 0) {
                         for (i in 0 until sessions.length()) {
+                            val session = sessions.getJSONObject(i)
                             if (i > 0) BankingViews.addDivider(this@SecurityCenterActivity, activeSessionsContainer)
-                            BankingViews.addSessionRow(this@SecurityCenterActivity, activeSessionsContainer, sessions.getJSONObject(i))
+                            BankingViews.addSessionRow(
+                                this@SecurityCenterActivity,
+                                activeSessionsContainer,
+                                session,
+                                onRevoke = { sessionId ->
+                                    CoroutineScope(Dispatchers.Main).launch {
+                                        val res = withContext(Dispatchers.IO) { client.revokeSession(token, sessionId) }
+                                        if (res.status in 200..204) {
+                                            loadSecurityData(token, statusText, trustedDevicesContainer, activeSessionsContainer, lastLoginText)
+                                        } else {
+                                            statusText.text = "Could not revoke session."
+                                        }
+                                    }
+                                }
+                            )
                         }
                         val first = sessions.getJSONObject(0)
                         lastLoginText.text =

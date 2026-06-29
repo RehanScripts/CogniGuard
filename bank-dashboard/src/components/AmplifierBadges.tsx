@@ -16,7 +16,7 @@ export default function AmplifierBadges({ amplifiers }: AmplifierBadgesProps) {
         <span
           key={amp.code}
           title={amp.detail}
-          className="rounded-full bg-purple-100 px-2 py-0.5 text-xs text-purple-800"
+          className="rounded-full bg-soc-warning-light px-2.5 py-0.5 text-xs font-semibold text-soc-warning"
         >
           {amp.code} ×{amp.multiplier}
         </span>

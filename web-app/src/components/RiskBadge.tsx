@@ -7,17 +7,24 @@ const BAND_STYLES: Record<RiskBand, string> = {
   very_high: "bg-red-100 text-red-800 border-red-300",
 };
 
+const BAND_LABELS: Record<RiskBand, string> = {
+  low: "Standard verification",
+  medium: "Additional verification required",
+  high: "Enhanced verification required",
+  very_high: "Transaction blocked",
+};
+
 interface RiskBadgeProps {
   band: RiskBand;
-  score: number;
+  score?: number;
 }
 
-export default function RiskBadge({ band, score }: RiskBadgeProps) {
+export default function RiskBadge({ band }: RiskBadgeProps) {
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium ${BAND_STYLES[band]}`}
     >
-      {band.replace("_", " ")} · {score.toFixed(0)}
+      {BAND_LABELS[band]}
     </span>
   );
 }

@@ -199,7 +199,18 @@ export default function Login() {
               <ConsentToggle username={username} />
             </div>
 
-            <div className="mt-6 flex items-center justify-center gap-4 border-t border-slate-100 pt-4 text-[10px] font-bold uppercase tracking-wider text-slate-500 opacity-70">
+            <div className="mt-4 text-center text-xs text-on-surface-variant">
+              New to Heritage Trust Bank?{" "}
+              <button
+                type="button"
+                className="font-semibold text-primary hover:underline"
+                onClick={() => navigate("/signup")}
+              >
+                Create account
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center justify-center gap-4 border-t border-slate-100 pt-4 text-[10px] font-bold uppercase tracking-wider text-slate-500 opacity-70">
               <div className="flex items-center gap-1">
                 <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
                 <span>SSL Secured</span>

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import uuid
 
 from fastapi import BackgroundTasks
@@ -32,11 +33,14 @@ from ..models.session import LoginEvent, Session as SessionModel
 from ..models.user import Account, User
 from ..schemas.auth import (
     ConsentRequest,
+    EmailVerifyRequest,
     LoginRequest,
     NonceResponse,
     RegisterRequest,
     StepUpVerifyRequest,
 )
+
+logger = logging.getLogger(__name__)
 from ..schemas.decision import DecisionResponse, Hardening
 from ..schemas.features import FeatureReadContext
 from ..schemas.scoring import ReasonCode
@@ -54,6 +58,7 @@ from . import (
     integrity,
 )
 from .adaptive_auth import accepts_assertion, select_factor
+from .otp import generate_otp, send_otp_email, verify_otp
 from .decision_engine import decide
 from .policy import active_policy
 
@@ -94,11 +99,14 @@ def _get_user_by_username(db: DbSession, username: str) -> User | None:
 
 
 def register(db: DbSession, req: RegisterRequest) -> User:
+    """Internal registration used by seed_demo — creates user as active immediately."""
     if _get_user_by_username(db, req.username) is not None:
         raise ValueError(f"username {req.username!r} already registered")
     user = User(
         customer_ref=req.username,
         password_hash=security.hash_password(req.password),
+        email=req.email,
+        full_name=req.full_name,
         account_status="active",
     )
     db.add(user)
@@ -115,6 +123,68 @@ def register(db: DbSession, req: RegisterRequest) -> User:
     )
     db.commit()
     return user
+
+
+def initiate_registration(
+    db: DbSession,
+    req: RegisterRequest,
+    redis: Redis,
+    background_tasks: BackgroundTasks,
+) -> tuple[User, str]:
+    """HTTP-facing registration: creates a pending user, sends email OTP for verification."""
+    if _get_user_by_username(db, req.username) is not None:
+        raise ValueError(f"username {req.username!r} already registered")
+    user = User(
+        customer_ref=req.username,
+        password_hash=security.hash_password(req.password),
+        email=req.email,
+        full_name=req.full_name,
+        account_status="pending_email_verify",
+    )
+    db.add(user)
+    db.flush()
+    db.add(
+        Account(
+            user_id=user.user_id,
+            account_number=f"ACC{uuid.uuid4().hex[:10].upper()}",
+            account_type="savings",
+            balance=100_000.00,
+            currency="INR",
+            status="active",
+        )
+    )
+    db.commit()
+
+    challenge_id = str(uuid.uuid4())
+    redis.setex(
+        f"reg_challenge:{challenge_id}",
+        600,
+        json.dumps({"user_id": str(user.user_id), "username": req.username}),
+    )
+    otp_code = generate_otp(challenge_id, redis, ttl=600)
+    # Log OTP at INFO so it's visible in dev console when SMTP is not configured.
+    logger.info("DEV registration OTP for %s: %s", req.username, otp_code)
+    background_tasks.add_task(send_otp_email, user.email or "", otp_code)
+    return user, challenge_id
+
+
+def verify_registration_email(
+    db: DbSession, redis: Redis, challenge_id: str, otp_code: str
+) -> tuple[int, dict]:
+    """Verifies the email OTP issued during initiate_registration and activates the account."""
+    raw = redis.get(f"reg_challenge:{challenge_id}")
+    if raw is None:
+        return 404, {"detail": "challenge_not_found_or_expired"}
+    data = json.loads(raw)
+    if not verify_otp(challenge_id, otp_code, redis):
+        return 401, {"detail": "invalid_or_expired_otp"}
+    user = db.get(User, uuid.UUID(data["user_id"]))
+    if user is None:
+        return 404, {"detail": "user_not_found"}
+    user.account_status = "active"
+    db.commit()
+    redis.delete(f"reg_challenge:{challenge_id}")
+    return 200, {"user_id": str(user.user_id), "status": "activated"}
 
 
 def consent_action(db: DbSession, req: ConsentRequest) -> User:
@@ -186,7 +256,16 @@ def login(
         h = hardening.register_failure(db, ip, device_fp, asn, policy, redis=redis)
         return 200, _reject("block", reason_code="BAD_CREDENTIALS", hardening_action=h)
 
+    # Capture the per-IP/device failure count BEFORE resetting it — the counters are gone
+    # after reset but the count is a real risk signal (genuine users don't mistype their
+    # own password; repeated failures suggest probing, coercion, or a stressed session).
+    _ip_fails = int(redis.get(hardening._k_fail_ip(ip)) or 0)
+    _dev_fails = int(redis.get(hardening._k_fail_device(device_fp)) or 0)
+    _pre_login_failures = max(_ip_fails, _dev_fails)
     hardening.reset(ip, device_fp, redis=redis)
+
+    if user.account_status != "active":
+        return 200, _reject("block", reason_code="ACCOUNT_NOT_ACTIVE", hardening_action=None)
 
     device = fingerprint.get_or_create_device(db, req.behavior.device)
     fingerprint.get_or_create_user_device(db, user.user_id, device.device_id)
@@ -211,7 +290,11 @@ def login(
     ctx = FeatureReadContext(
         behavior=req.behavior, device_id=str(device.device_id), session_id=kafka_session_id
     )
-    bundle = feature_reader.read_bundle(str(user.user_id), ctx, redis=redis)
+    bundle = feature_reader.read_bundle(
+        str(user.user_id), ctx, redis=redis,
+        device_trust_budgets=policy.get("device_trust"),
+    )
+    bundle.login_failure_count = _pre_login_failures
     behavior_features = bundle.behavior
     event_producer.emit_behavior_event(
         user_id=str(user.user_id),
@@ -326,6 +409,10 @@ def login(
             ),
             ex=300,
         )
+        # Generate and email OTP for knowledge-factor challenges.
+        if step_up.challenge_type in ("OTP", "MPIN"):
+            otp_code = generate_otp(step_up.challenge_id, redis)
+            background_tasks.add_task(send_otp_email, user.email or "", otp_code)
         # Audit: log STEP_UP_REQUIRED for SOC visibility.
         audit.write_audit_log(
             db,
@@ -378,6 +465,7 @@ def login(
         )
         db.commit()
 
+    _pre_score_id = uuid.uuid4()
     background_tasks.add_task(
         audit.persist_scoring_outcome,
         db,
@@ -386,6 +474,7 @@ def login(
         entity_type="login",
         entity_id=session_row.session_id if session_row else kafka_session_id,
         user_id=user.user_id,
+        score_id=_pre_score_id,
     )
     background_tasks.add_task(
         shadow.run_and_persist,
@@ -412,6 +501,7 @@ def login(
         trust_score=result.trust_score,
         behavior_match_score=result.behavior_match_score,
         behavior_score_source=result.behavior_score_source,
+        score_id=str(_pre_score_id),
     )
     background_tasks.add_task(
         event_producer.emit_decision,
@@ -422,7 +512,7 @@ def login(
         required_factors=response.required_factors,
         reason_codes=[rc.model_dump() for rc in result.reason_codes],
     )
-    if decision.action == "block" or result.risk_band == "very_high":
+    if result.risk_band in ("high", "very_high") or decision.action == "block":
         background_tasks.add_task(
             case_mgmt.maybe_open_case,
             db,
@@ -450,7 +540,12 @@ def verify_step_up(
 
     challenge = db.get(AuthChallenge, uuid.UUID(req.challenge_id))
     challenge_type = state["challenge_type"]
-    passed = accepts_assertion(challenge_type, req.otp_or_assertion)
+    passed = accepts_assertion(
+        challenge_type,
+        req.otp_or_assertion,
+        challenge_id=req.challenge_id,
+        redis=redis,
+    )
 
     if not passed:
         attempts = (challenge.attempts if challenge is not None else 0) + 1

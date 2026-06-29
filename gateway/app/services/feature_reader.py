@@ -19,7 +19,7 @@ from redis import Redis
 
 from training.train_isolation_forest import BEHAVIOR_COLUMNS
 
-from ..scoring import calibration, identity
+from ..scoring import calibration, device_trust as _device_trust_engine, embedding_store, identity
 from ..scoring.autoencoder import MIN_SEQ, N_FEATURES, SEQ_LEN
 from ..schemas.behavior import BehaviorPayload
 from ..schemas.features import (
@@ -78,6 +78,10 @@ def _k_device_trust(device_id: str) -> str:
 
 def _k_seq(session_id: str) -> str:
     return f"behavior:{session_id}:seq"
+
+
+def _k_risk_baseline(uid: str) -> str:
+    return f"user:{uid}:risk_baseline"
 
 
 def _parse_hour(ts: str) -> tuple[int, int]:
@@ -221,7 +225,13 @@ def _resolve_ae(
     return behavior_sequence, behavior_sequence_mask, None, ae_cold_start
 
 
-def read_bundle(user_id: str, payload: FeatureReadContext, *, redis: Redis) -> FeatureBundle:
+def read_bundle(
+    user_id: str,
+    payload: FeatureReadContext,
+    *,
+    redis: Redis,
+    device_trust_budgets: dict | None = None,
+) -> FeatureBundle:
     """Assemble a `FeatureBundle` from Redis online features + the inline payload.
     Reads Redis ONLY (no Postgres). Missing keys (cold-start) fall back to defaults
     that bias the decision layer toward `verify`, never `block` (CLAUDE.md §6.9)."""
@@ -230,11 +240,10 @@ def read_bundle(user_id: str, payload: FeatureReadContext, *, redis: Redis) -> F
 
     device_id = payload.device_id
     is_new_device = True
-    device_trust = 0.0
+    _trust_raw: bytes | None = None
     if device_id:
         is_new_device = not redis.sismember(_k_known_devices(user_id), device_id)
-        trust_raw = redis.get(_k_device_trust(device_id))
-        device_trust = float(trust_raw) if trust_raw is not None else 0.0
+        _trust_raw = redis.get(_k_device_trust(device_id))
 
     geo_distance_km = 0.0
     geo_change = False
@@ -244,6 +253,28 @@ def read_bundle(user_id: str, payload: FeatureReadContext, *, redis: Redis) -> F
         last_lat, last_lon = profile.get("last_geo_lat"), profile.get("last_geo_lon")
         if last_lat is not None and last_lon is not None:
             geo_distance_km = haversine(float(last_lat), float(last_lon), payload.geo_lat, payload.geo_lon)
+
+    # Device trust: prefer the Redis-cached value written by a prior request.
+    # On first encounter (cache miss) compute from signals already in hand and write
+    # to Redis immediately so the next request is a fast cache hit (two small SETs,
+    # only on new devices — well within latency budget).
+    if _trust_raw is not None:
+        device_trust = float(_trust_raw)
+    elif device_id:
+        _dt_result = _device_trust_engine.compute(
+            is_rooted=payload.behavior.device.is_rooted,
+            is_emulator=payload.behavior.device.is_emulator,
+            is_new_device=is_new_device,
+            geo_distance_km=geo_distance_km,
+            hours_since_last_login=_device_trust_engine.hours_since(
+                profile.get("last_login_ts")
+            ),
+            budgets=device_trust_budgets,
+        )
+        device_trust = _dt_result.trust
+        _device_trust_engine.persist(device_id, _dt_result, redis=redis)
+    else:
+        device_trust = 0.0
 
     avg_amount_30d = float(profile.get("avg_amount_30d") or 0.0)
     std_amount_30d = float(profile.get("std_amount_30d") or 0.0)
@@ -274,6 +305,18 @@ def read_bundle(user_id: str, payload: FeatureReadContext, *, redis: Redis) -> F
     # Its presence is what flips `enrolled` on and activates the identity Trust anchor.
     identity_raw = redis.get(identity.identity_baseline_key(user_id))
     identity_baseline = identity.parse_identity_baseline(identity_raw) if identity_raw else None
+
+    # Per-user risk baseline for adaptive band thresholds (Phase B4).
+    risk_baseline: dict | None = None
+    _baseline_raw = redis.get(_k_risk_baseline(user_id))
+    if _baseline_raw:
+        try:
+            risk_baseline = json.loads(_baseline_raw)
+        except (TypeError, ValueError):
+            pass
+
+    # F4: Read cached encoder cosine similarity from previous clean session (background-written).
+    embedding_sim = embedding_store.read_cached_sim(user_id, redis=redis)
 
     return FeatureBundle(
         user_id=user_id,
@@ -315,4 +358,45 @@ def read_bundle(user_id: str, payload: FeatureReadContext, *, redis: Redis) -> F
         cold_start=cold_start,
         identity_baseline=identity_baseline,
         enrolled=identity_baseline is not None,
+        risk_baseline=risk_baseline,
+        embedding_sim=embedding_sim,
     )
+
+
+def snapshot_features(bundle: FeatureBundle, s3_client: object, session_id: str) -> None:
+    """Write a FeatureBundle snapshot to S3 for offline training parity (Phase F2).
+
+    Path: s3://features/{date}/{session_id}.json
+    Only called on clean low-risk sessions (gated by caller; never step-up-passed).
+    Silently no-ops on any S3 error so it never blocks the hot path.
+    """
+    from ..s3_client import get_s3
+    from ..config import settings
+
+    try:
+        s3 = s3_client or get_s3()
+        date_str = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+        key = f"features/{date_str}/{session_id}.json"
+
+        payload = json.dumps({
+            "session_id": session_id,
+            "user_id": bundle.user_id,
+            "snapshotted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "behavior": bundle.behavior.model_dump() if hasattr(bundle.behavior, "model_dump") else vars(bundle.behavior),
+            "device": bundle.device.model_dump() if hasattr(bundle.device, "model_dump") else vars(bundle.device),
+            "network": bundle.network.model_dump() if hasattr(bundle.network, "model_dump") else vars(bundle.network),
+            "txn": bundle.txn.model_dump() if hasattr(bundle.txn, "model_dump") else vars(bundle.txn),
+            "context": bundle.context.model_dump() if hasattr(bundle.context, "model_dump") else vars(bundle.context),
+            "cold_start": bundle.cold_start,
+            "enrolled": bundle.enrolled,
+            "ae_recon_error": bundle.ae_recon_error,
+            "ae_cold_start": bundle.ae_cold_start,
+        })
+        s3.put_object(
+            Bucket=settings.s3_bucket,
+            Key=key,
+            Body=payload.encode(),
+            ContentType="application/json",
+        )
+    except Exception:
+        pass

@@ -46,4 +46,10 @@ dependencies {
     // Real device biometric step-up (FINGERPRINT/FACE) for the `verify` action (Phase 24).
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    // CameraX for dummy face-auth preview (very_high risk, no capture/storage).
+    val cameraxVersion = "1.3.1"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
 }

@@ -6,38 +6,49 @@ admin-track JWT (`deps.require_role`) -- `admin` for policy/model writes, either
 
 from __future__ import annotations
 
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from redis import Redis
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session as DbSession
 
 from training import drift_monitor, promote
 
 from .. import deps
+from ..redis_client import redis_client
 from ..models.behavior import BehaviorSample
-from ..models.device import UserDevice
+from ..models.device import Device, UserDevice
 from ..models.governance import Case, ModelRegistry
-from ..models.scoring import Decision, RiskScore
+from ..models.scoring import AuthChallenge, Decision, RiskScore
+from ..models.session import LoginEvent, Session as SessionModel
+from ..models.transaction import Transaction
 from ..models.user import User
+from ..scoring import shap_explainer
 from ..scoring.registry import Registry
 from ..schemas.admin import (
     AdminLoginRequest,
     AdminLoginResponse,
+    AuthTimelineEventOut,
     CaseOut,
     CaseUpdate,
+    DeviceIntelOut,
     DriftReportOut,
     EventOut,
+    FactoryResetOut,
+    GeoEntryOut,
+    InvestigationResultOut,
     ModelOut,
     ModelVersionOut,
     PolicyUpdate,
     PromoteRequest,
     RollbackRequest,
+    ShapExplanationOut,
     UserDetailOut,
 )
-from ..services import analyst_auth, case_mgmt
-from ..services.policy import POLICY_REDIS_KEY, active_policy
+from ..services import analyst_auth, case_mgmt, investigation_llm
+from ..services.policy import DEFAULT_POLICY, POLICY_REDIS_KEY, active_policy
 
 router = APIRouter()
 
@@ -151,6 +162,174 @@ def get_user_detail(user_id: str, db: DbSession = Depends(deps.get_db)) -> UserD
     )
 
 
+@router.get(
+    "/users/{user_id}/auth-timeline",
+    response_model=list[AuthTimelineEventOut],
+    dependencies=[_any_role],
+)
+def get_auth_timeline(
+    user_id: str, db: DbSession = Depends(deps.get_db)
+) -> list[AuthTimelineEventOut]:
+    """D2: recent login events + step-up challenges for a user (analyst-only)."""
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid user_id")
+
+    events = db.scalars(
+        select(LoginEvent)
+        .where(LoginEvent.user_id == uid)
+        .order_by(LoginEvent.created_at.desc())
+        .limit(50)
+    ).all()
+
+    out: list[AuthTimelineEventOut] = []
+    for ev in events:
+        device_label: str | None = None
+        if ev.device_id:
+            d = db.get(Device, ev.device_id)
+            if d:
+                device_label = " ".join(p for p in (d.os, d.browser) if p) or None
+
+        challenge_type: str | None = None
+        if ev.event_type == "step_up" and ev.session_id:
+            challenge_row = db.scalar(
+                select(AuthChallenge)
+                .where(AuthChallenge.challenge_id == ev.session_id)
+            )
+            if challenge_row:
+                challenge_type = challenge_row.challenge_type
+
+        out.append(
+            AuthTimelineEventOut(
+                event_id=str(ev.event_id),
+                event_type=ev.event_type,
+                challenge_type=challenge_type,
+                decision=ev.decision,
+                risk_band=None,
+                device_label=device_label,
+                created_at=ev.created_at,
+            )
+        )
+    return out
+
+
+@router.get(
+    "/devices/{device_id}",
+    response_model=DeviceIntelOut,
+    dependencies=[_any_role],
+)
+def get_device_intel(
+    device_id: str, db: DbSession = Depends(deps.get_db)
+) -> DeviceIntelOut:
+    """D3: device intelligence — trust class, geo trend, linked users."""
+    try:
+        did = uuid.UUID(device_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid device_id")
+
+    device = db.get(Device, did)
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
+
+    user_links = db.scalars(
+        select(UserDevice).where(UserDevice.device_id == did)
+    ).all()
+    trust_score = float(user_links[0].trust_score) if user_links else None
+    is_trusted = any(l.is_trusted for l in user_links)
+
+    trust_class = "unknown"
+    if trust_score is not None:
+        if trust_score >= 60 and is_trusted:
+            trust_class = "trusted"
+        elif trust_score >= 40:
+            trust_class = "known"
+        elif device.is_rooted or device.is_emulator:
+            trust_class = "suspicious"
+        else:
+            trust_class = "new"
+
+    geo_rows = db.scalars(
+        select(SessionModel)
+        .where(SessionModel.device_id == did)
+        .order_by(SessionModel.started_at.desc())
+        .limit(5)
+    ).all()
+
+    geo_trend = [
+        GeoEntryOut(
+            ip_address=str(s.ip_address) if s.ip_address else None,
+            city=s.geo_city,
+            country=s.geo_country,
+            seen_at=s.started_at,
+        )
+        for s in geo_rows
+    ]
+
+    event_count = db.scalar(
+        select(func.count()).select_from(RiskScore).where(
+            RiskScore.entity_id.in_(
+                select(SessionModel.session_id).where(SessionModel.device_id == did)
+            )
+        )
+    ) or 0
+
+    return DeviceIntelOut(
+        device_id=str(did),
+        os=device.os,
+        os_version=device.os_version,
+        browser=device.browser,
+        is_rooted=device.is_rooted,
+        is_emulator=device.is_emulator,
+        first_seen_at=device.first_seen_at,
+        last_seen_at=device.last_seen_at,
+        trust_class=trust_class,
+        trust_score=trust_score,
+        linked_user_count=len(user_links),
+        event_count=int(event_count),
+        geo_trend=geo_trend,
+    )
+
+
+@router.post(
+    "/explain/{score_id}",
+    response_model=ShapExplanationOut,
+    dependencies=[_any_role],
+)
+def explain_score(
+    score_id: str,
+    db: DbSession = Depends(deps.get_db),
+    registry: Registry = Depends(deps.get_registry),
+) -> ShapExplanationOut:
+    """D4: on-demand SHAP explanation for a risk score (off hot path, analyst-only)."""
+    try:
+        return shap_explainer.explain_score(score_id, db, registry)
+    except (ValueError, ImportError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post(
+    "/cases/{case_id}/investigate",
+    response_model=InvestigationResultOut,
+    dependencies=[_any_role],
+)
+async def investigate_case(
+    case_id: str, db: DbSession = Depends(deps.get_db)
+) -> InvestigationResultOut:
+    """D5: LLM investigation assistant — deterministic stub by default, Claude if configured."""
+    try:
+        cid = uuid.UUID(case_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid case_id")
+
+    case = db.get(Case, cid)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+
+    provider = investigation_llm.get_provider()
+    return await provider.investigate(case_id, case, db)
+
+
 @router.get("/policy", dependencies=[_any_role])
 def get_policy(redis: Redis = Depends(deps.get_redis)) -> dict:
     return {"active_policy": active_policy(redis=redis)}
@@ -162,7 +341,33 @@ def put_policy(update: PolicyUpdate, redis: Redis = Depends(deps.get_redis)) -> 
     return {"active_policy": active_policy(redis=redis)}
 
 
-def _case_out(case: Case) -> CaseOut:
+def _case_out(case: Case, db: DbSession) -> CaseOut:
+    score_id: str | None = None
+    risk_band: str | None = None
+    final_risk_score: float | None = None
+    reason_codes: list[dict] | None = None
+    amplifiers: list[dict] | None = None
+
+    if case.transaction_id:
+        risk_score_row = db.scalar(
+            select(RiskScore)
+            .where(RiskScore.entity_id == case.transaction_id, RiskScore.is_shadow.is_(False))
+            .order_by(RiskScore.scored_at.desc())
+        )
+        if risk_score_row:
+            score_id = str(risk_score_row.score_id)
+            risk_band = risk_score_row.risk_band
+            final_risk_score = (
+                float(risk_score_row.final_risk_score)
+                if risk_score_row.final_risk_score is not None
+                else None
+            )
+        txn = db.get(Transaction, case.transaction_id)
+        if txn and txn.decision_reason:
+            reason_codes = txn.decision_reason.get("reason_codes")
+            amplifiers = txn.decision_reason.get("amplifiers")
+
+    updated_at = (case.resolved_at or case.created_at)
     return CaseOut(
         case_id=str(case.case_id),
         user_id=str(case.user_id) if case.user_id else None,
@@ -173,6 +378,12 @@ def _case_out(case: Case) -> CaseOut:
         assigned_to=case.assigned_to,
         created_at=case.created_at.isoformat() if case.created_at else None,
         resolved_at=case.resolved_at.isoformat() if case.resolved_at else None,
+        updated_at=updated_at.isoformat() if updated_at else None,
+        score_id=score_id,
+        risk_band=risk_band,
+        final_risk_score=final_risk_score,
+        reason_codes=reason_codes,
+        amplifiers=amplifiers,
     )
 
 
@@ -188,7 +399,7 @@ def list_cases(
         stmt = stmt.where(Case.status == status)
     if user_id:
         stmt = stmt.where(Case.user_id == uuid.UUID(user_id))
-    return [_case_out(c) for c in db.scalars(stmt).all()]
+    return [_case_out(c, db) for c in db.scalars(stmt).all()]
 
 
 @router.patch("/cases/{case_id}", response_model=CaseOut, dependencies=[_any_role])
@@ -197,7 +408,7 @@ def patch_case(case_id: str, update: CaseUpdate, db: DbSession = Depends(deps.ge
         case = case_mgmt.update_case(db, case_id, update)
     except ValueError:
         raise HTTPException(status_code=404, detail="case not found")
-    return _case_out(case)
+    return _case_out(case, db)
 
 
 def _model_version_out(row: ModelRegistry) -> ModelVersionOut:
@@ -277,3 +488,28 @@ def get_drift(
     # __main__) triggers retrains; a GET must never have that side effect.
     report = drift_monitor.run(db, policy=active_policy(redis=redis), trigger_retrain=False)
     return DriftReportOut(**report)
+
+
+_RESET_TABLES = [
+    "users", "accounts", "sessions", "login_events", "behavior_samples",
+    "beneficiaries", "user_beneficiaries", "transactions",
+    "risk_scores", "decisions", "auth_challenges",
+    "cases", "audit_logs", "devices", "user_devices",
+]
+
+
+@router.post("/factory-reset", response_model=FactoryResetOut, dependencies=[_admin_only])
+def factory_reset(db: DbSession = Depends(deps.get_db)) -> FactoryResetOut:
+    """Wipe all banking user/session/behavioral data for a clean-slate demo.
+
+    Keeps: model_registry (scoring stays live) and analysts (SOC logins preserved).
+    After the wipe, sets system:seed_disabled in Redis so seed_demo.py skips
+    user re-seeding on container restart — the next interaction must be Sign Up.
+    """
+    table_list = ", ".join(_RESET_TABLES)
+    db.execute(text(f"TRUNCATE {table_list} RESTART IDENTITY CASCADE"))
+    db.commit()
+    redis_client.flushdb()
+    redis_client.set(POLICY_REDIS_KEY, json.dumps(DEFAULT_POLICY))
+    redis_client.set("system:seed_disabled", "1")
+    return FactoryResetOut(status="ok", tables_truncated=_RESET_TABLES, redis="flushed")

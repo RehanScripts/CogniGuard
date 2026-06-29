@@ -6,10 +6,10 @@
   "behavior": {
     "channel": "web",
     "source": "web_sdk",
-    "nonce": "ORkeWmxusqEP0O1NQW3hgQ",
+    "nonce": "pVEPIidnSNkA8hIYGkzVVA",
     "seq": 1,
-    "ts": "2026-06-25T12:49:41.165589+00:00",
-    "integrity_sig": "c6f09f30cf99d841f1087dfc7cb0a76657928d87c31164dfb9e6c57754c02084",
+    "ts": "2026-06-29T14:38:12.989032+00:00",
+    "integrity_sig": "6c983a14dd8d3db2286853641d1734ab8957bb2c318da9afae7871690a63ac08",
     "device": {
       "fingerprint": "known-mumbai-device-001",
       "ua": "cogniguard-fixture-generator",

@@ -25,7 +25,7 @@ from ..schemas.behavior import BehaviorPayload
 from ..schemas.decision import BehaviorIngestResponse, DecisionResponse
 from ..schemas.features import FeatureReadContext
 from ..schemas.scoring import ReasonCode
-from ..scoring import shadow, stack
+from ..scoring import embedding_store, shadow, stack
 from ..scoring.registry import Registry
 from ..utils import security
 from . import audit, case_mgmt, event_producer, feature_reader, integrity
@@ -56,6 +56,43 @@ def _write_session_risk(
             }
         ),
         ex=24 * 3600,
+    )
+
+
+_RISK_BASELINE_TTL_S = 90 * 24 * 3600  # 90 days
+_RISK_BASELINE_ALPHA = 0.1              # EMA smoothing factor
+
+
+def _k_risk_baseline(uid: str) -> str:
+    return f"user:{uid}:risk_baseline"
+
+
+def _update_risk_baseline(redis: Redis, uid: str, score: float) -> None:
+    """EMA update of per-user risk baseline on clean (low, no step-up) sessions.
+    Uses Welford-like running variance via EMA of squared deviation so a single
+    Redis key stores the full distribution estimate compactly."""
+    raw = redis.get(_k_risk_baseline(uid))
+    if raw:
+        try:
+            bl = json.loads(raw)
+            avg = float(bl["avg"])
+            std = float(bl["std"])
+            count = int(bl["count"])
+        except (KeyError, TypeError, ValueError):
+            avg, std, count = score, 0.0, 0
+    else:
+        avg, std, count = score, 0.0, 0
+
+    alpha = _RISK_BASELINE_ALPHA
+    new_avg = alpha * score + (1 - alpha) * avg
+    new_var = (1 - alpha) * (std ** 2 + alpha * (score - avg) ** 2)
+    new_std = max(new_var ** 0.5, 0.0)
+    new_count = count + 1
+
+    redis.set(
+        _k_risk_baseline(uid),
+        json.dumps({"avg": round(new_avg, 3), "std": round(new_std, 3), "count": new_count}),
+        ex=_RISK_BASELINE_TTL_S,
     )
 
 
@@ -92,7 +129,10 @@ def ingest(
         device_id=str(session.device_id) if session.device_id else None,
         session_id=str(session.session_id),
     )
-    bundle = feature_reader.read_bundle(str(user.user_id), ctx, redis=redis)
+    bundle = feature_reader.read_bundle(
+        str(user.user_id), ctx, redis=redis,
+        device_trust_budgets=policy.get("device_trust"),
+    )
     behavior_features = bundle.behavior
     event_producer.emit_behavior_event(
         user_id=str(user.user_id),
@@ -127,6 +167,28 @@ def ingest(
             final_risk_score=result.final_risk_score,
             action=action,
         )
+        # Update per-user risk baseline only on clean low-risk sessions (Phase B4).
+        # Step-up passed sessions are quarantined per invariant 17 -- only `allow`
+        # on low band (no step-up triggered) advances the baseline.
+        if result.risk_band == "low" and action == "allow":
+            _update_risk_baseline(redis, str(user.user_id), result.final_risk_score)
+            # F2: Snapshot features to S3 for offline training parity.
+            background_tasks.add_task(
+                feature_reader.snapshot_features,
+                bundle,
+                None,  # s3_client resolved inside snapshot_features
+                str(session.session_id),
+            )
+            # F4: Update per-user AE encoder embedding centroid (web only; mobile sends
+            # ae_recon_error directly and has no server-side behavior_sequence).
+            if bundle.behavior_sequence is not None:
+                background_tasks.add_task(
+                    embedding_store.embedding_match_score,
+                    str(user.user_id),
+                    bundle.behavior_sequence,
+                    registry=registry,
+                    redis=redis,
+                )
 
     decision_response = DecisionResponse(
         action=action,
@@ -199,7 +261,7 @@ def ingest(
         required_factors=[],
         reason_codes=[rc.model_dump() for rc in result.reason_codes],
     )
-    if very_high:
+    if result.risk_band in ("high", "very_high") or action == "block":
         background_tasks.add_task(
             case_mgmt.maybe_open_case,
             db,

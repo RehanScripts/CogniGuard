@@ -3,12 +3,13 @@ interface QuarantineStatusProps {
 }
 
 export default function QuarantineStatus({ quarantinedSamples }: QuarantineStatusProps) {
+  const hasQuarantined = quarantinedSamples > 0;
   return (
-    <div className="rounded-lg border bg-white p-3 text-sm shadow-sm">
-      <p className="font-medium">
+    <div className={`rounded-xl border p-4 text-sm ${hasQuarantined ? "border-band-medium-bg bg-band-medium-bg" : "border-soc-border bg-soc-elevated"}`}>
+      <p className={`font-semibold ${hasQuarantined ? "text-band-medium" : "text-soc-text"}`}>
         {quarantinedSamples} quarantined sample{quarantinedSamples === 1 ? "" : "s"}
       </p>
-      <p className="text-gray-500">
+      <p className="mt-0.5 text-xs text-soc-muted">
         Step-up-passed telemetry held back from training, pending a clean 7-day cooling window.
       </p>
     </div>

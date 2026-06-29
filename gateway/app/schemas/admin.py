@@ -1,5 +1,6 @@
 """Admin / dashboard contracts — Implementation.md Phase 2 / §4."""
 
+import datetime as dt
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -72,6 +73,13 @@ class CaseOut(BaseModel):
     assigned_to: str | None = None
     created_at: str | None = None
     resolved_at: str | None = None
+    updated_at: str | None = None
+    # Risk data joined from the linked RiskScore / Transaction
+    score_id: str | None = None
+    risk_band: str | None = None
+    final_risk_score: float | None = None
+    reason_codes: list[dict] | None = None
+    amplifiers: list[dict] | None = None
 
 
 class ModelVersionOut(BaseModel):
@@ -103,3 +111,69 @@ class DriftReportOut(BaseModel):
     outcome: dict
     breaches: list[dict] = Field(default_factory=list)
     retrained_models: list[str] = Field(default_factory=list)
+
+
+# D2: Auth timeline
+class AuthTimelineEventOut(BaseModel):
+    event_id: str
+    event_type: str | None = None
+    challenge_type: str | None = None
+    decision: str | None = None
+    risk_band: str | None = None
+    device_label: str | None = None
+    created_at: dt.datetime | None = None
+
+
+# D3: Device intelligence
+class GeoEntryOut(BaseModel):
+    ip_address: str | None = None
+    city: str | None = None
+    country: str | None = None
+    seen_at: dt.datetime | None = None
+
+
+class DeviceIntelOut(BaseModel):
+    device_id: str
+    os: str | None = None
+    os_version: str | None = None
+    browser: str | None = None
+    is_rooted: bool
+    is_emulator: bool
+    first_seen_at: dt.datetime | None = None
+    last_seen_at: dt.datetime | None = None
+    trust_class: str | None = None  # trusted|known|new|suspicious
+    trust_score: float | None = None
+    linked_user_count: int = 0
+    event_count: int = 0
+    geo_trend: list[GeoEntryOut] = Field(default_factory=list)
+
+
+# D4: SHAP explanation
+class ShapFeatureOut(BaseModel):
+    feature: str
+    shap_value: float
+    feature_value: float | None = None
+
+
+class ShapExplanationOut(BaseModel):
+    score_id: str
+    model_version: str | None = None
+    top_features: list[ShapFeatureOut] = Field(default_factory=list)
+    ai_explanation: str | None = None  # Groq-generated; None when key absent or API down
+
+
+# Factory reset (admin-only destructive wipe)
+class FactoryResetOut(BaseModel):
+    status: str
+    tables_truncated: list[str]
+    redis: str
+
+
+# D5: LLM investigation assistant
+class InvestigationResultOut(BaseModel):
+    case_id: str
+    provider: str  # "stub" or "claude"
+    summary: str
+    risk_factors: list[str] = Field(default_factory=list)
+    recommendation: str | None = None
+    generated_at: dt.datetime | None = None

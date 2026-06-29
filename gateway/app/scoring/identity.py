@@ -35,6 +35,14 @@ from .calibration import CalibrationParams
 EPS = 1e-9
 MAD_TO_STD = 1.4826  # MAD -> std consistency constant for a normal distribution
 
+# Per-dimension z cap: prevents one noisy sensor (e.g. accelerometer variance that
+# naturally changes with phone orientation) from saturating the RMS identity distance
+# and collapsing behavior_match to ~0% for a legitimate enrolled user.  A value of 3
+# keeps the maximum single-dim contribution to 3σ — still a clear anomaly signal for an
+# impostor who differs on that feature, but no longer a kill-switch when all other dims
+# are well within baseline.
+_Z_CAP = 3.0
+
 
 def identity_baseline_key(user_id: str) -> str:
     return f"behavior:{user_id}:identity_baseline"
@@ -139,7 +147,7 @@ def identity_distance(vector: Sequence[float], baseline: IdentityBaseline) -> fl
                 continue
             scale = abs(median) * 0.25
         z = (x - median) / scale
-        squares.append(z * z)
+        squares.append(min(z * z, _Z_CAP * _Z_CAP))
     if not squares:
         return 0.0
     return math.sqrt(sum(squares) / len(squares))

@@ -85,7 +85,7 @@ def test_produce_consume_roundtrip():
     consumer = kafka_client.get_consumer(f"test-{marker}", [T_TRANSACTION])
     try:
         found = None
-        for _ in range(50):  # poll up to ~10s
+        for _ in range(100):  # poll up to ~20s to allow partition assignment + delivery
             msg = consumer.poll(0.2)
             if msg is None or msg.error():
                 continue

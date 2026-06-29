@@ -46,7 +46,8 @@ describe("Dashboard", () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(screen.getByText(/welcome, genuine customer/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/good day,/i)).toBeInTheDocument());
+    expect(screen.getByText("Genuine")).toBeInTheDocument();
     expect(screen.getByText(/52,340\.50/)).toBeInTheDocument();
     expect(screen.getByText(/XXXXXX1234/)).toBeInTheDocument();
   });

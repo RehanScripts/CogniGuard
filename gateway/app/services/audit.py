@@ -26,7 +26,11 @@ def persist_risk_score(
     entity_id: uuid.UUID | str,
     user_id: uuid.UUID | str | None,
     is_shadow: bool = False,
+    score_id: uuid.UUID | None = None,
 ) -> RiskScore:
+    kwargs: dict[str, Any] = {}
+    if score_id is not None:
+        kwargs["score_id"] = score_id
     row = RiskScore(
         entity_type=entity_type,
         entity_id=entity_id,
@@ -42,6 +46,7 @@ def persist_risk_score(
         trust_score=result.trust_score,
         behavior_match_score=result.behavior_match_score,
         behavior_score_source=result.behavior_score_source,
+        **kwargs,
     )
     db.add(row)
     db.commit()
@@ -77,12 +82,13 @@ def persist_scoring_outcome(
     entity_type: str,
     entity_id: uuid.UUID | str,
     user_id: uuid.UUID | str | None,
+    score_id: uuid.UUID | None = None,
 ) -> tuple[RiskScore, Decision]:
     """Single background task so the persisted `Decision` row links to its `RiskScore`
     via `risk_score_id` -- two independent `BackgroundTasks.add_task` calls can't see
     each other's generated id once scheduled."""
     risk_score = persist_risk_score(
-        db, result, entity_type=entity_type, entity_id=entity_id, user_id=user_id
+        db, result, entity_type=entity_type, entity_id=entity_id, user_id=user_id, score_id=score_id
     )
     decision_row = persist_decision(
         db,

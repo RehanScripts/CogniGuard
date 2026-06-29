@@ -12,7 +12,7 @@ interface IntegrityFlagProps {
 export default function IntegrityFlag({ integrity }: IntegrityFlagProps) {
   if (integrity !== "INTEGRITY_REJECT") return null;
   return (
-    <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">
+    <span className="rounded-full bg-soc-danger px-2 py-0.5 text-xs font-semibold text-white">
       INTEGRITY_REJECT
     </span>
   );

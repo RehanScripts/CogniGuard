@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import Payment from "./Payment";
@@ -39,7 +40,7 @@ describe("Payment", () => {
         },
       },
     });
-    render(<Payment />);
+    render(<MemoryRouter><Payment /></MemoryRouter>);
     fillAndSubmit();
 
     await waitFor(() => expect(screen.getByText(/is someone instructing you/i)).toBeInTheDocument());
@@ -54,10 +55,10 @@ describe("Payment", () => {
       status: 200,
       body: { action: "allow", risk_band: "low", risk_score: 5, txn_controls: null },
     });
-    render(<Payment />);
+    render(<MemoryRouter><Payment /></MemoryRouter>);
     fillAndSubmit();
 
-    await waitFor(() => expect(screen.getByText(/action: allow/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/standard verification/i)).toBeInTheDocument());
     expect(screen.queryByText(/is someone instructing you/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/re-type the amount/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/cooling period/i)).not.toBeInTheDocument();

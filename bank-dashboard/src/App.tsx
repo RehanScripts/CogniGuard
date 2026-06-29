@@ -26,9 +26,9 @@ export default function App() {
           path="*"
           element={
             <RequireAuth>
-              <>
+              <div className="flex min-h-screen">
                 <NavBar />
-                <main className="p-4">
+                <main className="ml-56 flex-1 px-6 py-6 overflow-y-auto">
                   <Routes>
                     <Route path="/" element={<Live />} />
                     <Route path="/users/:userId" element={<UserDetail />} />
@@ -38,7 +38,7 @@ export default function App() {
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
                 </main>
-              </>
+              </div>
             </RequireAuth>
           }
         />

@@ -86,6 +86,21 @@ class FeatureBundle(BaseModel):
     identity_baseline: Any = None
     enrolled: bool = False
 
+    # Wrong-password count captured by auth_flow BEFORE hardening.reset() clears it.
+    # Feeds the failure-count identity-risk amplifier in stack.py so band escalates
+    # automatically: 0 failures → medium, 1 → high, 2+ → very_high (demo and real).
+    login_failure_count: int = 0
+
+    # Per-user risk baseline for adaptive band thresholds (UPGRADE_PLAN.md Phase B4).
+    # Populated by feature_reader from `user:{uid}:risk_baseline` (EMA of clean sessions).
+    # None when no clean-session history exists yet — stack.py falls back to global policy.
+    risk_baseline: dict | None = None
+
+    # AE encoder embedding cosine similarity (Phase F4). Populated by feature_reader from
+    # `behavior:{uid}:embedding_sim` (written as a background task by embedding_store on
+    # previous clean sessions; never blocks the hot path). None on cold-start.
+    embedding_sim: float | None = None
+
     def behavior_vector(self) -> list[float]:
         """9-dim vector in BEHAVIOR_COLUMNS order — matches the IsolationForest artifact."""
         return [getattr(self.behavior, name) for name in BEHAVIOR_COLUMNS]

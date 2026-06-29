@@ -155,8 +155,13 @@ def test_seed_demo_beneficiary_added_recently_and_not_known():
         age = dt.datetime.now(dt.timezone.utc) - link.added_at
         assert dt.timedelta(minutes=35) < age < dt.timedelta(minutes=45)
 
+    # Remove any prior-test contamination from the known_beneficiaries Redis set so we
+    # can assert the seed state independently of payment-flow tests that may have run
+    # a transaction to this beneficiary and marked it as known.
+    bene_id_str = str(beneficiary.beneficiary_id)
+    redis_client.srem(f"user:{user_id}:known_beneficiaries", bene_id_str)
     assert not redis_client.sismember(
-        f"user:{user_id}:known_beneficiaries", str(beneficiary.beneficiary_id)
+        f"user:{user_id}:known_beneficiaries", bene_id_str
     )
 
 

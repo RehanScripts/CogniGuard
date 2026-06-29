@@ -6,6 +6,7 @@ export interface RiskScoreEvent {
   entity_type: "login" | "transaction";
   entity_id: string;
   user_id?: string | null;
+  score_id?: string | null;
   behavior_score: number;
   device_score: number;
   transaction_score: number;
@@ -34,15 +35,31 @@ export interface DecisionEvent {
   ts: string;
 }
 
-export type SocFeedEvent = RiskScoreEvent | DecisionEvent;
+// Emitted by case_mgmt.maybe_open_case after db.commit() — guaranteed in DB before arrival.
+export interface CaseOpenedEvent {
+  event_type: "case_opened";
+  case_id: string;
+  user_id?: string | null;
+  transaction_id?: string | null;
+  alert_type?: string | null;
+  severity?: string | null;
+  status: string;
+  risk_band?: string | null;
+  action?: string | null;
+  reason_codes?: { code: string; detail?: string }[] | null;
+  created_at?: string | null;
+}
 
-// No `type` discriminator exists on the wire (confirmed against
-// gateway/app/schemas/topics.py, routers/ws.py, services/broadcaster.py) -- this is
-// the only way to tell the two apart: DecisionEvent carries `action`, RiskScoreEvent
-// carries `final_risk_score`. Inferred, not contractual -- would break if both
-// schemas ever grow an overlapping field with one of these names.
+export type SocFeedEvent = RiskScoreEvent | DecisionEvent | CaseOpenedEvent;
+
+// Discriminators — CaseOpenedEvent has an explicit `event_type` field; the two Kafka
+// events are told apart by field presence (no wire discriminator on those).
+export function isCaseOpenedEvent(e: SocFeedEvent): e is CaseOpenedEvent {
+  return "event_type" in e && (e as CaseOpenedEvent).event_type === "case_opened";
+}
+
 export function isDecisionEvent(event: SocFeedEvent): event is DecisionEvent {
-  return "action" in event;
+  return !isCaseOpenedEvent(event) && "action" in event;
 }
 
 export function isRiskScoreEvent(event: SocFeedEvent): event is RiskScoreEvent {

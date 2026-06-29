@@ -68,9 +68,21 @@ class CogniGuardClient(private val apiBase: String, private val signingSecret: S
         return result.body.getString("nonce")
     }
 
-    fun register(username: String, password: String): ApiResult {
+    fun register(
+        username: String,
+        password: String,
+        email: String? = null,
+        fullName: String? = null,
+    ): ApiResult {
         val body = JSONObject().put("username", username).put("password", password)
+        email?.let { body.put("email", it) }
+        fullName?.let { body.put("full_name", it) }
         return request("/api/v1/auth/register", "POST", body)
+    }
+
+    fun verifyRegistrationEmail(challengeId: String, otpCode: String): ApiResult {
+        val body = JSONObject().put("challenge_id", challengeId).put("otp_code", otpCode)
+        return request("/api/v1/auth/register/verify-email", "POST", body)
     }
 
     fun setConsent(username: String, action: String = "GRANT", consentVersion: String = "v1"): ApiResult {
@@ -152,6 +164,38 @@ class CogniGuardClient(private val apiBase: String, private val signingSecret: S
 
     fun getSecuritySettings(token: String): ApiResult =
         request("/api/v1/banking/security-settings", "GET", null, token = token)
+
+    // Phase C3: trusted-device / session write endpoints
+    fun trustDevice(token: String, deviceId: String): ApiResult =
+        request("/api/v1/banking/devices/$deviceId/trust", "POST", JSONObject(), token = token)
+
+    fun revokeSession(token: String, sessionId: String): ApiResult =
+        request("/api/v1/banking/sessions/$sessionId", "DELETE", null, token = token)
+
+    fun logout(token: String): ApiResult =
+        request("/api/v1/auth/logout", "POST", null, token = token)
+
+    fun getLoginHistory(token: String): ApiArrayResult =
+        requestArray("/api/v1/banking/login-history", token)
+
+    // Phase C3: KeyStore biometric binding
+    fun getEnrollChallenge(token: String): ApiResult =
+        request("/api/v1/mobile/device/enroll-challenge", "GET", null, token = token)
+
+    fun bindBiometric(
+        token: String,
+        deviceId: String,
+        enrollmentNonce: String,
+        publicKeyPem: String,
+        signatureB64: String,
+    ): ApiResult {
+        val body = JSONObject()
+            .put("device_id", deviceId)
+            .put("enrollment_nonce", enrollmentNonce)
+            .put("public_key_pem", publicKeyPem)
+            .put("signature_b64", signatureB64)
+        return request("/api/v1/mobile/device/bind-biometric", "POST", body, token = token)
+    }
 
     companion object {
         fun toJson(signed: SignedBehaviorPayload): JSONObject {

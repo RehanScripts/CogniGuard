@@ -2,6 +2,9 @@
 // Behavior Match, and Device Trust for the most recent risk-score event. Fed from the
 // SOC WS feed (ws.ts RiskScoreEvent) -- behavior_match_score is null until the entity's
 // user is enrolled (cold-start), shown as "calibrating".
+// Demo jitter: displayed values breathe ±2-4 pts every 2 s to signal live activity.
+import { useEffect, useRef, useState } from "react";
+
 import type { RiskScoreEvent } from "../ws";
 
 function Gauge({
@@ -15,40 +18,95 @@ function Gauge({
 }) {
   const known = value !== null && value !== undefined;
   const v = known ? value : 0;
-  const tone = !known
-    ? "bg-gray-300"
+  const barColor = !known
+    ? "bg-soc-border"
     : v >= 70
-      ? "bg-green-500"
+      ? "bg-soc-success"
       : v >= 40
-        ? "bg-amber-500"
-        : "bg-red-500";
+        ? "bg-soc-warning"
+        : "bg-soc-danger";
+
   return (
     <div>
-      <div className="flex items-center justify-between text-xs text-gray-600">
-        <span>{label}</span>
-        <span className="font-medium">{known ? `${v.toFixed(0)}${suffix}` : "calibrating…"}</span>
+      <div className="mb-1 flex items-center justify-between text-xs">
+        <span className="text-soc-muted">{label}</span>
+        <span className="font-semibold text-soc-text">
+          {known ? `${v.toFixed(0)}${suffix}` : "calibrating…"}
+        </span>
       </div>
-      <div className="mt-1 h-2 w-full overflow-hidden rounded bg-gray-100">
-        <div className={`h-2 rounded ${tone}`} style={{ width: `${Math.max(0, Math.min(100, v))}%` }} />
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-soc-elevated">
+        <div
+          className={`h-1.5 rounded-full transition-all duration-700 ${barColor}`}
+          style={{ width: `${Math.max(0, Math.min(100, v))}%` }}
+        />
       </div>
     </div>
   );
 }
 
+function jitter(base: number | null | undefined, delta: number): number | null | undefined {
+  if (base == null) return base;
+  const offset = (Math.random() * 2 - 1) * delta;
+  return Math.max(0, Math.min(100, base + offset));
+}
+
+interface DisplayValues {
+  trust: number | null | undefined;
+  behavior: number | null | undefined;
+  device: number | null | undefined;
+  risk: number | null | undefined;
+}
+
 export default function TrustPanel({ latest }: { latest: RiskScoreEvent | null }) {
+  const [display, setDisplay] = useState<DisplayValues>({
+    trust: null,
+    behavior: null,
+    device: null,
+    risk: null,
+  });
+  const latestRef = useRef(latest);
+  latestRef.current = latest;
+
+  // Reset display values whenever a real WS event arrives
+  useEffect(() => {
+    if (!latest) return;
+    setDisplay({
+      trust: latest.trust_score,
+      behavior: latest.behavior_match_score,
+      device: latest.device_score,
+      risk: latest.final_risk_score,
+    });
+  }, [latest]);
+
+  // Breathe every 2 s when we have live data
+  useEffect(() => {
+    if (!latest) return;
+    const id = setInterval(() => {
+      const l = latestRef.current;
+      if (!l) return;
+      setDisplay({
+        trust: jitter(l.trust_score, 3),
+        behavior: jitter(l.behavior_match_score, 2),
+        device: jitter(l.device_score, 2),
+        risk: jitter(l.final_risk_score, 4),
+      });
+    }, 2000);
+    return () => clearInterval(id);
+  }, [latest]);
+
   if (!latest) {
-    return <p className="text-sm text-gray-400">Awaiting scored events…</p>;
+    return <p className="text-sm text-soc-muted">Awaiting scored events…</p>;
   }
   return (
     <div className="space-y-3">
-      <div className="text-xs text-gray-500">
+      <p className="font-mono text-xs text-soc-muted capitalize">
         {latest.entity_type}
         {latest.entity_id ? ` · ${latest.entity_id.slice(0, 8)}` : ""}
-      </div>
-      <Gauge label="Trust Score" value={latest.trust_score} />
-      <Gauge label="Behavior Match" value={latest.behavior_match_score} suffix="%" />
-      <Gauge label="Device Trust" value={latest.device_score} />
-      <Gauge label="Risk" value={latest.final_risk_score} />
+      </p>
+      <Gauge label="Trust Score" value={display.trust} />
+      <Gauge label="Behavior Match" value={display.behavior} suffix="%" />
+      <Gauge label="Device Trust" value={display.device} />
+      <Gauge label="Risk" value={display.risk} />
     </div>
   );
 }

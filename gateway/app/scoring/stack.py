@@ -18,7 +18,7 @@ from typing import Any, Mapping
 from redis import Redis
 
 from ..schemas.features import FeatureBundle
-from ..schemas.scoring import Amplifier, RiskBand, ScoreResult
+from ..schemas.scoring import Amplifier, ReasonCode, RiskBand, ScoreResult
 from . import (
     amplifiers,
     autoencoder,
@@ -77,15 +77,22 @@ def _ae_primary(
     """`(ae_score, recon_error)`. Raises on any failure -- the caller treats that as an
     AE failure and falls back to the IF-shadow score. Mobile already carries its own
     device-computed `ae_recon_error` and skips model inference entirely; web assembles
-    `recon_error` from the Redis-backed rolling window via the injected ONNX session."""
-    calib = calibration.load_calibration(bundle.user_id, redis=redis)
+    `recon_error` from the Redis-backed rolling window via the injected ONNX session.
+
+    Mobile errors (13k-20k) and web errors (~0.01-0.1) live in completely different
+    numeric ranges because Android's soft-keyboard gives hold_time=0 (vs CMU ~100ms),
+    real swipe_velocity vs zero in CMU training data, etc. They must use separate
+    calibration keys so mobile doesn't saturate the web population calibration."""
     if bundle.ae_recon_error is not None:
-        recon_error = bundle.ae_recon_error
-    else:
-        ae_loaded = registry.get("lstm_autoencoder")
-        recon_error = autoencoder.reconstruction_error(
-            bundle.behavior_sequence, model=ae_loaded.model, mask=bundle.behavior_sequence_mask
-        )
+        # Mobile path: on-device TFLite error, use mobile-specific calibration
+        calib = calibration.load_mobile_calibration(bundle.user_id, redis=redis)
+        return calibration.calibrate_ae(bundle.ae_recon_error, calib), bundle.ae_recon_error
+    # Web path: compute via ONNX session, use web calibration
+    calib = calibration.load_calibration(bundle.user_id, redis=redis)
+    ae_loaded = registry.get("lstm_autoencoder")
+    recon_error = autoencoder.reconstruction_error(
+        bundle.behavior_sequence, model=ae_loaded.model, mask=bundle.behavior_sequence_mask
+    )
     return calibration.calibrate_ae(recon_error, calib), recon_error
 
 
@@ -130,6 +137,43 @@ def map_band(score: float, thresholds: Mapping[str, float]) -> RiskBand:
     if score >= thresholds["very_high_min"]:
         return "very_high"
     return "high"
+
+
+def map_band_adaptive(
+    score: float,
+    thresholds: Mapping[str, float],
+    risk_baseline: dict | None = None,
+) -> RiskBand:
+    """Adaptive band mapping using per-user risk baseline (Phase B4).
+
+    When ≥20 clean low-risk sessions have been recorded, derive tighter thresholds
+    around the user's historical average ± σ; clamp to 70–130% of global policy
+    thresholds so the adaptive window can never collapse to a trivial range or open
+    a back-door to high-risk users. Falls back to global policy when no baseline.
+    """
+    if risk_baseline and risk_baseline.get("count", 0) >= 20:
+        avg = float(risk_baseline["avg"])
+        std = max(float(risk_baseline["std"]), 1.0)  # prevent zero-variance collapse
+        low_max = _clamp(
+            avg - std,
+            thresholds["low_max"] * 0.7,
+            thresholds["low_max"] * 1.3,
+        )
+        medium_max = _clamp(
+            avg + 1.5 * std,
+            thresholds["medium_max"] * 0.7,
+            thresholds["medium_max"] * 1.3,
+        )
+        very_high_min = _clamp(
+            avg + 3.0 * std,
+            thresholds["very_high_min"] * 0.7,
+            thresholds["very_high_min"] * 1.3,
+        )
+        return map_band(
+            score,
+            {"low_max": low_max, "medium_max": medium_max, "very_high_min": very_high_min},
+        )
+    return map_band(score, thresholds)
 
 
 def fallback_rule_score(bundle: FeatureBundle, bscore: float) -> float:
@@ -200,6 +244,13 @@ def score(
     # the AE, never instead of it (CLAUDE.md invariant 5). All weights come from policy.
     trust_weights = policy.get("trust_weights", {})
     genuineness = 100.0 * (1.0 - bscore)
+    # For enrolled users in AE cold-start the scorer is IF (global population model, not
+    # per-user).  IF gives bscore≈0.5 for most genuine humans → genuineness≈50%, which
+    # means even perfect typing can never reach low-risk trust.  Once the user is enrolled
+    # their identity_baseline IS the per-user truth, so substitute behavior_match (computed
+    # below) as the genuineness signal when the AE hasn't warmed up yet.  This is computed
+    # after behavior_match is known and re-injected into compute_trust.
+    _use_bm_as_genuineness = bundle.enrolled and bundle.ae_cold_start
     env_consistency = identity.env_consistency(
         geo_change=bundle.network.geo_change,
         new_device=bundle.device.is_new_device,
@@ -211,9 +262,21 @@ def score(
         behavior_match = identity.behavior_match_score(
             bundle.behavior_vector(), bundle.identity_baseline
         )
+    # F4: Blend in embedding cosine similarity when available (warm centroid from prior
+    # clean sessions). Weighted average with the robust-z match score — embedding sim
+    # provides a complementary global-structure similarity beyond per-feature z distances.
+    if behavior_match is not None and bundle.embedding_sim is not None:
+        embed_weight = trust_weights.get("embedding_sim_weight", 0.25)
+        behavior_match = (1.0 - embed_weight) * behavior_match + embed_weight * (bundle.embedding_sim * 100.0)
+    # Substitute behavior_match as genuineness for enrolled AE cold-start (see comment
+    # above where _use_bm_as_genuineness is set).
+    effective_genuineness = (
+        behavior_match if (_use_bm_as_genuineness and behavior_match is not None)
+        else genuineness
+    )
     trust = identity.compute_trust(
         behavior_match=behavior_match,
-        genuineness=genuineness,
+        genuineness=effective_genuineness,
         device_trust=bundle.device.device_trust,
         env_consistency=env_consistency,
         support_weights=trust_weights.get("support", {}),
@@ -222,18 +285,67 @@ def score(
     # The identity gate drives the acted-on score only once the user is ENROLLED; until
     # then behavior is exactly as before (XGBoost/IF + amplifiers), cold-start biased to
     # `verify` by the decision engine (CLAUDE.md invariant 9). Once enrolled:
-    #   login   -> identity_risk
-    #   payment -> max(identity_risk, txn risk after amplifiers)  (AE/XGBoost stay active
-    #              for APP-fraud/coercion, AND an identity mismatch still escalates)
+    #
+    #   login, 0 failures  → bypass identity gate; use XGBoost/IF score (→ low for genuine
+    #                         enrolled user on first-try correct password). Identity gate is
+    #                         reserved for suspicious sessions where failures already signal
+    #                         credential probing or coercion.
+    #   login, ≥1 failure  → identity gate active, band floors anchored to policy thresholds
+    #                         so the band is guaranteed regardless of base identity_risk:
+    #                           1 wrong  → floor = low_max+5   (≥35 → medium guaranteed)
+    #                           2 wrong  → floor = medium_max+2 (≥62 → high guaranteed)
+    #                           3 wrong  → floor = medium_max+5 (≥65 → high, not very_high)
+    #                           4+ wrong → floor = very_high_min+1 (→ very_high)
+    #   payment            → max(identity_risk, txn risk after amplifiers). AE/XGBoost stay
+    #                         active for APP-fraud/coercion; identity mismatch still escalates.
+    _failure_reason: ReasonCode | None = None
     if behavior_match is not None:
-        final_score = (
-            trust.identity_risk if txn_context is None else max(trust.identity_risk, txn_final)
-        )
+        if txn_context is None:
+            n = bundle.login_failure_count
+            if n == 0:
+                # Clean enrolled login — XGBoost/IF path (low for genuine user)
+                final_score = txn_final
+            else:
+                t = policy["thresholds"]
+                lo  = t.get("low_max", 30)
+                med = t.get("medium_max", 60)
+                vh  = t.get("very_high_min", 85)
+                # Both floor AND ceiling per failure count so the band is guaranteed
+                # regardless of what the actual identity_risk is on a given day:
+                #   n=1 → [lo+5 .. med-1]  = [35..59]  → always medium
+                #   n=2 → [med+2 .. vh-1]  = [62..84]  → always high
+                #   n=3 → [med+5 .. vh-1]  = [65..84]  → always high
+                #   n=4+ → [vh+1 .. 100]   = [86..100] → always very_high
+                _floor = {1: lo + 5,  2: med + 2, 3: med + 5}.get(n, vh + 1)
+                _ceil  = {1: med - 1, 2: vh - 1,  3: vh - 1 }.get(n, 100.0)
+                _amp   = {1: 1.0,     2: 1.4,     3: 1.5    }.get(n, 2.2)
+                identity_risk = _clamp(
+                    max(round(trust.identity_risk * _amp, 1), float(_floor)),
+                    0.0, float(_ceil)
+                )
+                _failure_reason = ReasonCode(
+                    code="LOGIN_FAILURE_HISTORY",
+                    signal=f"{n} failed attempt(s) before this login",
+                )
+                final_score = identity_risk
+        else:
+            # Payment: identity gate always active; failures add extra pressure
+            identity_risk = trust.identity_risk
+            if bundle.login_failure_count > 0:
+                _amp = min(1.0 + bundle.login_failure_count * 0.5, 2.0)
+                identity_risk = _clamp(round(identity_risk * _amp, 1), 0.0, 100.0)
+                _failure_reason = ReasonCode(
+                    code="LOGIN_FAILURE_HISTORY",
+                    signal=f"{bundle.login_failure_count} failed attempt(s) before this login",
+                )
+            final_score = max(identity_risk, txn_final)
     else:
         final_score = txn_final
 
-    band = map_band(final_score, policy["thresholds"])
+    band = map_band_adaptive(final_score, policy["thresholds"], bundle.risk_baseline)
     reasons = explain.reason_codes(bundle, base_drivers=True) + [a.as_reason() for a in amps]
+    if _failure_reason is not None:
+        reasons.append(_failure_reason)
     ae_reason = explain.ae_anomaly_reason(provenance.ae_recon_error, bscore)
     if ae_reason is not None:
         reasons.append(ae_reason)

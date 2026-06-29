@@ -25,13 +25,27 @@ class Settings(BaseSettings):
     jwt_secret: str = "change_me_dev_only_super_secret"
     jwt_alg: str = "HS256"
     jwt_ttl_minutes: int = 30
-    admin_jwt_ttl_minutes: int = 60
+    admin_jwt_ttl_minutes: int = 480
     nonce_ttl_s: int = 120
     integrity_skew_s: int = 30
-    demo_otp: str = "123456"
+
+    # SMTP (real OTP delivery) — leave smtp_host empty to suppress email in dev
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "noreply@centralbankofindia.co.in"
 
     # ML
     model_dir: str = "/models"
+
+    # LLM investigation assistant (Phase D5) — set LLM_PROVIDER=claude + ANTHROPIC_API_KEY to enable
+    llm_provider: str = "stub"
+    anthropic_api_key: str = ""
+
+    # Groq (SHAP AI explanation) — set GROQ_API_KEY to enable; omit for graceful fallback
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.1-8b-instant"
 
     # App
     app_env: str = "dev"

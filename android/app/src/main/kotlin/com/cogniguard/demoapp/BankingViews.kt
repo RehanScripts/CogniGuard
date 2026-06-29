@@ -1,10 +1,12 @@
 package com.cogniguard.demoapp
 
 import android.content.Context
+import android.graphics.Color
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
@@ -218,11 +220,23 @@ object BankingViews {
         container.addView(row)
     }
 
-    fun addDeviceRow(context: Context, container: LinearLayout, device: JSONObject) {
-        val row = rowContainer(context)
+    /** Device row with optional Trust button.
+     * [onTrust] receives the device_id; pass null for read-only display. */
+    fun addDeviceRow(
+        context: Context,
+        container: LinearLayout,
+        device: JSONObject,
+        onTrust: ((deviceId: String) -> Unit)? = null,
+    ) {
+        val outerCol = LinearLayout(context)
+        outerCol.orientation = LinearLayout.VERTICAL
+        outerCol.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
 
+        val row = rowContainer(context)
         val trusted = device.optBoolean("is_trusted")
-        val label = safeOptString(device, "label").ifBlank { safeOptString(device, "device_id", "--") }
+        val deviceId = safeOptString(device, "device_id", "")
+        val label = safeOptString(device, "label").ifBlank { deviceId.take(8).ifBlank { "--" } }
+
         val avatarParams = LinearLayout.LayoutParams(dp(context, 36), dp(context, 36))
         avatarParams.marginEnd = dp(context, 12)
         val avatar = avatarCircle(context, label.take(1).uppercase(), if (trusted) R.drawable.bg_badge_circle_success else R.drawable.bg_badge_circle_neutral)
@@ -239,30 +253,78 @@ object BankingViews {
         row.addView(avatar)
         row.addView(labelView)
         row.addView(status)
-        container.addView(row)
+        outerCol.addView(row)
+
+        if (onTrust != null && !trusted && deviceId.isNotEmpty()) {
+            val btn = actionButton(context, "Trust this device")
+            btn.setOnClickListener {
+                btn.isEnabled = false
+                btn.text = "Trusting…"
+                onTrust(deviceId)
+            }
+            outerCol.addView(btn)
+        }
+
+        container.addView(outerCol)
     }
 
-    fun addSessionRow(context: Context, container: LinearLayout, session: JSONObject) {
-        val row = rowContainer(context)
+    /** Session row with optional Revoke button.
+     * [onRevoke] receives the session_id; pass null for read-only display. */
+    fun addSessionRow(
+        context: Context,
+        container: LinearLayout,
+        session: JSONObject,
+        onRevoke: ((sessionId: String) -> Unit)? = null,
+    ) {
+        val outerCol = LinearLayout(context)
+        outerCol.orientation = LinearLayout.VERTICAL
+        outerCol.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
 
-        val label = safeOptString(session, "device_label").ifBlank { safeOptString(session, "session_id", "--") }
+        val row = rowContainer(context)
+        val sessionId = safeOptString(session, "session_id", "")
+        val label = safeOptString(session, "device_label").ifBlank { sessionId.take(8).ifBlank { "--" } }
+
         val avatarParams = LinearLayout.LayoutParams(dp(context, 36), dp(context, 36))
         avatarParams.marginEnd = dp(context, 12)
         val avatar = avatarCircle(context, label.take(1).uppercase(), R.drawable.bg_badge_circle_primary)
         avatar.layoutParams = avatarParams
 
-        val labelView = textView(context, label, 14f, R.color.cbi_text)
-        labelView.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-
-        val location = textView(context, safeOptString(session, "location").ifBlank { "--" }, 12f, R.color.cbi_text_muted)
-        val locationParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        locationParams.marginStart = dp(context, 8)
-        location.layoutParams = locationParams
+        val textCol = LinearLayout(context)
+        textCol.orientation = LinearLayout.VERTICAL
+        textCol.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        textCol.addView(textView(context, label, 14f, R.color.cbi_text))
+        val loc = safeOptString(session, "location").ifBlank { "--" }
+        textCol.addView(textView(context, loc, 12f, R.color.cbi_text_muted))
 
         row.addView(avatar)
-        row.addView(labelView)
-        row.addView(location)
-        container.addView(row)
+        row.addView(textCol)
+        outerCol.addView(row)
+
+        if (onRevoke != null && sessionId.isNotEmpty()) {
+            val btn = actionButton(context, "Revoke session", isDestructive = true)
+            btn.setOnClickListener {
+                btn.isEnabled = false
+                btn.text = "Revoking…"
+                onRevoke(sessionId)
+            }
+            outerCol.addView(btn)
+        }
+
+        container.addView(outerCol)
+    }
+
+    private fun actionButton(context: Context, label: String, isDestructive: Boolean = false): Button {
+        val btn = Button(context)
+        btn.text = label
+        btn.textSize = 12f
+        btn.setTextColor(if (isDestructive) Color.parseColor("#DC2626") else ContextCompat.getColor(context, R.color.cbi_primary))
+        btn.setBackgroundResource(R.drawable.bg_pill_badge_muted)
+        val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(context, 32))
+        params.topMargin = dp(context, 6)
+        params.marginStart = dp(context, 48)  // align under label, past avatar
+        btn.layoutParams = params
+        btn.setPadding(dp(context, 16), 0, dp(context, 16), 0)
+        return btn
     }
 
     /** A quick-action tile (colored letter badge + label) for the Dashboard's action row. */

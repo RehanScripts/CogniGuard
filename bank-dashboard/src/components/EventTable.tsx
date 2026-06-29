@@ -1,8 +1,3 @@
-import { useNavigate } from "react-router-dom";
-
-// Unified row shape so this table can render both the WS live feed (RiskScoreEvent |
-// DecisionEvent, no DB id) and the REST admin/events backfill (EventOut) -- callers
-// convert to this shape rather than EventTable knowing about both wire formats.
 export interface EventRow {
   key: string;
   entityType: string;
@@ -12,52 +7,98 @@ export interface EventRow {
   score?: number | null;
   action?: string | null;
   ts: string;
+  scoreId?: string | null;
+}
+
+function BandBadge({ band }: { band: string | null | undefined }) {
+  if (!band) return <span className="text-soc-muted">—</span>;
+  const cls: Record<string, string> = {
+    low: "badge-low",
+    medium: "badge-medium",
+    high: "badge-high",
+    very_high: "badge-very_high",
+  };
+  return (
+    <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${cls[band] ?? "bg-soc-bg text-soc-muted"}`}>
+      {band.replace("_", " ")}
+    </span>
+  );
+}
+
+function ActionBadge({ action }: { action: string | null | undefined }) {
+  if (!action) return <span className="text-soc-muted">—</span>;
+  const cls: Record<string, string> = {
+    allow: "badge-allow",
+    verify: "badge-verify",
+    block: "badge-block",
+  };
+  return (
+    <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${cls[action] ?? "bg-soc-bg text-soc-muted"}`}>
+      {action}
+    </span>
+  );
 }
 
 interface EventTableProps {
   rows: EventRow[];
+  onRowClick?: (row: EventRow) => void;
 }
 
-export default function EventTable({ rows }: EventTableProps) {
-  const navigate = useNavigate();
-
+export default function EventTable({ rows, onRowClick }: EventTableProps) {
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="text-left text-gray-500">
-          <th className="py-1">Entity</th>
-          <th>Band</th>
-          <th>Score</th>
-          <th>Action</th>
-          <th>When</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr
-            key={row.key}
-            className={`border-t ${row.userId ? "cursor-pointer hover:bg-gray-50" : ""}`}
-            onClick={row.userId ? () => navigate(`/users/${row.userId}`) : undefined}
-            title={row.userId ? "View user detail" : undefined}
-          >
-            <td className="py-1">
-              {row.entityType}
-              {row.entityId ? ` · ${row.entityId.slice(0, 8)}` : ""}
-            </td>
-            <td>{row.band ?? "--"}</td>
-            <td>{row.score !== null && row.score !== undefined ? row.score.toFixed(0) : "--"}</td>
-            <td>{row.action ?? "--"}</td>
-            <td>{new Date(row.ts).toLocaleTimeString()}</td>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-soc-border bg-soc-elevated text-[11px] font-semibold uppercase tracking-wider text-soc-muted">
+            <th className="px-4 py-3 text-left">Entity</th>
+            <th className="px-4 py-3 text-left">Risk Band</th>
+            <th className="px-4 py-3 text-right">Score</th>
+            <th className="px-4 py-3 text-left">Action</th>
+            <th className="px-4 py-3 text-right">Time</th>
           </tr>
-        ))}
-        {rows.length === 0 && (
-          <tr>
-            <td colSpan={5} className="py-4 text-center text-gray-400">
-              No events yet
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
+        </thead>
+        <tbody className="divide-y divide-soc-border">
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={5} className="px-4 py-10 text-center text-sm text-soc-muted">
+                No events yet — waiting for live traffic…
+              </td>
+            </tr>
+          )}
+          {rows.map((row, i) => (
+            <tr
+              key={row.key}
+              className={`cursor-pointer transition-colors hover:bg-soc-primary-light/30 ${i % 2 === 0 ? "" : "bg-soc-elevated/50"}`}
+              onClick={() => onRowClick?.(row)}
+              title="Click to AI investigate"
+            >
+              <td className="px-4 py-3">
+                <span className="font-medium text-soc-text capitalize">{row.entityType}</span>
+                {row.entityId && (
+                  <span className="ml-1.5 font-mono text-[11px] text-soc-muted">
+                    {row.entityId.slice(0, 8)}…
+                  </span>
+                )}
+                {row.userId && (
+                  <p className="mt-0.5 font-mono text-[10px] text-soc-muted">{row.userId.slice(0, 12)}…</p>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                <BandBadge band={row.band} />
+              </td>
+              <td className="px-4 py-3 text-right font-mono text-sm font-semibold text-soc-text">
+                {row.score != null ? row.score.toFixed(1) : "—"}
+              </td>
+              <td className="px-4 py-3">
+                <ActionBadge action={row.action} />
+              </td>
+              <td className="px-4 py-3 text-right font-mono text-[11px] text-soc-muted">
+                {new Date(row.ts).toLocaleTimeString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

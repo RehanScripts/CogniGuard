@@ -26,6 +26,8 @@ dependencies = [
   "argon2-cffi>=23.1",
   "python-multipart>=0.0.9",
   "websockets>=12.0",
+  "shap>=0.45",
+  "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]

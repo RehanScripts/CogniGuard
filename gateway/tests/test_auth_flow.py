@@ -59,8 +59,19 @@ def _signed_behavior(client: TestClient, *, seq: int, device_fp: str, action_typ
 
 
 def _register_and_consent(client: TestClient, username: str, password: str) -> None:
-    r = client.post("/api/v1/auth/register", json={"username": username, "password": password})
+    r = client.post("/api/v1/auth/register", json={"username": username, "password": password, "email": f"{username}@test.local"})
     assert r.status_code == 201, r.text
+    data = r.json()
+    challenge_id = data["challenge_id"]
+    # Read OTP directly from Redis (SMTP not configured in test environment).
+    otp = redis_client.get(f"otp:{challenge_id}")
+    assert otp is not None, "OTP not found in Redis"
+    otp_code = otp.decode() if isinstance(otp, bytes) else otp
+    r_verify = client.post(
+        "/api/v1/auth/register/verify-email",
+        json={"challenge_id": challenge_id, "otp_code": otp_code},
+    )
+    assert r_verify.status_code == 200, r_verify.text
     r2 = client.post(
         "/api/v1/auth/consent", json={"username": username, "action": "GRANT", "consent_version": "v1"}
     )
@@ -204,8 +215,13 @@ def test_login_verify_branch_carries_kafka_session_id_into_stepup_state(client, 
     kafka_session_id = state["kafka_session_id"]
     assert redis_client.llen(f"behavior:{kafka_session_id}:seq") == 1
 
+    # Read the actual OTP that the login flow generated in Redis (random 6-digit code).
+    otp_raw = redis_client.get(f"otp:{challenge_id}")
+    assert otp_raw is not None, "login flow should have generated an OTP in Redis"
+    actual_otp = otp_raw.decode() if isinstance(otp_raw, bytes) else otp_raw
+
     good = client.post(
-        "/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": "123456"}
+        "/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": actual_otp}
     )
     assert good.status_code == 200
     from app.utils import security
@@ -243,11 +259,16 @@ def test_step_up_verify_with_demo_otp_completes_login(client, username):
             ),
             ex=300,
         )
+        # Seed the OTP that the verify endpoint will look up in Redis.
+        redis_client.set(f"otp:{challenge_id}", "123456", ex=300)
     finally:
         db.close()
 
     bad = client.post("/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": "000000"})
     assert bad.status_code == 401
+    # Re-seed OTP after the bad attempt consumed it (verify_otp only deletes on success,
+    # but a wrong code leaves the key intact — still, re-seed to be explicit).
+    redis_client.set(f"otp:{challenge_id}", "123456", ex=300)
 
     good = client.post("/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": "123456"})
     assert good.status_code == 200

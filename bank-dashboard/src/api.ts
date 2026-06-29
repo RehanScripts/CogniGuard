@@ -52,6 +52,12 @@ export interface CaseOut {
   assigned_to?: string | null;
   created_at?: string | null;
   resolved_at?: string | null;
+  updated_at?: string | null;
+  score_id?: string | null;
+  risk_band?: string | null;
+  final_risk_score?: number | null;
+  reason_codes?: Record<string, unknown>[] | null;
+  amplifiers?: Record<string, unknown>[] | null;
 }
 
 export interface CaseUpdate {
@@ -196,4 +202,89 @@ export function listModels(): Promise<ApiResult<ModelOut[]>> {
 
 export function getDrift(): Promise<ApiResult<DriftReportOut>> {
   return adminRequest("/api/v1/admin/drift");
+}
+
+// D2: Auth timeline
+export interface AuthTimelineEventOut {
+  event_id: string;
+  event_type?: string | null;
+  challenge_type?: string | null;
+  decision?: string | null;
+  risk_band?: string | null;
+  device_label?: string | null;
+  created_at?: string | null;
+}
+
+export function getAuthTimeline(userId: string): Promise<ApiResult<AuthTimelineEventOut[]>> {
+  return adminRequest(`/api/v1/admin/users/${userId}/auth-timeline`);
+}
+
+// D3: Device intelligence
+export interface GeoEntryOut {
+  ip_address?: string | null;
+  city?: string | null;
+  country?: string | null;
+  seen_at?: string | null;
+}
+
+export interface DeviceIntelOut {
+  device_id: string;
+  os?: string | null;
+  os_version?: string | null;
+  browser?: string | null;
+  is_rooted: boolean;
+  is_emulator: boolean;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
+  trust_class?: string | null;
+  trust_score?: number | null;
+  linked_user_count: number;
+  event_count: number;
+  geo_trend: GeoEntryOut[];
+}
+
+export function getDeviceIntel(deviceId: string): Promise<ApiResult<DeviceIntelOut>> {
+  return adminRequest(`/api/v1/admin/devices/${deviceId}`);
+}
+
+// D4: SHAP explanation
+export interface ShapFeatureOut {
+  feature: string;
+  shap_value: number;
+  feature_value?: number | null;
+}
+
+export interface ShapExplanationOut {
+  score_id: string;
+  model_version?: string | null;
+  top_features: ShapFeatureOut[];
+  ai_explanation?: string | null;
+}
+
+export interface FactoryResetOut {
+  status: string;
+  tables_truncated: string[];
+  redis: string;
+}
+
+export function explainScore(scoreId: string): Promise<ApiResult<ShapExplanationOut>> {
+  return adminRequest(`/api/v1/admin/explain/${scoreId}`, { method: "POST" });
+}
+
+// D5: LLM investigation assistant
+export interface InvestigationResultOut {
+  case_id: string;
+  provider: string;
+  summary: string;
+  risk_factors: string[];
+  recommendation?: string | null;
+  generated_at?: string | null;
+}
+
+export function investigateCase(caseId: string): Promise<ApiResult<InvestigationResultOut>> {
+  return adminRequest(`/api/v1/admin/cases/${caseId}/investigate`, { method: "POST" });
+}
+
+export function factoryReset(): Promise<ApiResult<FactoryResetOut>> {
+  return adminRequest("/api/v1/admin/factory-reset", { method: "POST" });
 }

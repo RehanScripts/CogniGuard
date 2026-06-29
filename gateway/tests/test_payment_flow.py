@@ -229,6 +229,9 @@ def _seed_pending_txn_stepup(username: str, *, challenge_type: str) -> tuple[str
             ),
             ex=300,
         )
+        # Seed a known OTP for OTP-type challenges so test assertions with "123456" work.
+        if challenge_type == "OTP":
+            redis_client.set(f"otp:{challenge_id}", "123456", ex=300)
         return challenge_id, transaction_id
     finally:
         db.close()

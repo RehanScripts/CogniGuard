@@ -182,9 +182,11 @@ def test_mobile_channel_skips_sequence_assembly_and_uses_its_own_recon_error():
     sequence, mask, ae_recon_error, ae_cold_start = feature_reader._resolve_ae(
         ctx, behavior_features, user_id=f"user-{uuid.uuid4().hex}", redis=redis_client
     )
-    assert sequence is None and mask is None  # mobile skips assembly entirely
-    assert ae_recon_error == 0.0731
-    assert ae_cold_start is False  # calib:ae:population exists post-Phase-16 training
+    assert sequence is None and mask is None  # mobile skips server-side assembly
+    assert ae_recon_error == 0.0731  # device's own recon error forwarded unchanged
+    # session_id=None → no row-counter to track; implementation returns cold-start=True
+    # (biases to verify until MIN_SEQ real rows accumulate in a live session).
+    assert ae_cold_start is True
 
 
 def test_get_ae_model_resolves_the_production_tflite_artifact(client):

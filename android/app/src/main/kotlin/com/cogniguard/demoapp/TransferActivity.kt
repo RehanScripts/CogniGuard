@@ -2,10 +2,12 @@ package com.cogniguard.demoapp
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Base64
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -44,6 +46,18 @@ class TransferActivity : AppCompatActivity() {
     private lateinit var motionCapture: MotionCapture
     private var sessionToken: String? = null
     private var username: String = "genuine"
+    private var pendingAmount: Double = 0.0
+    private var pendingBeneficiary: String = ""
+
+    private val upiPinLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                knownBeneficiaries.add(pendingBeneficiary)
+                goToSuccess(pendingAmount, pendingBeneficiary)
+            } else {
+                resultText.text = "UPI transfer cancelled."
+            }
+        }
     private val aeScorerLazy = lazy { AeSequenceScorer(this) }
     private val aeScorer by aeScorerLazy
     private var aeModelVersion: String? = null
@@ -121,6 +135,9 @@ class TransferActivity : AppCompatActivity() {
                 resultText.text = "Enter a valid amount."
                 return@setOnClickListener
             }
+            val beneficiary = beneficiaryInput.text.toString()
+            val transferType = selectedTransferType()
+
             resultText.text = "Scoring..."
             controlsText.text = ""
             coercionPanel.visibility = View.GONE
@@ -129,22 +146,37 @@ class TransferActivity : AppCompatActivity() {
             confirmedManualAmount = false
             manualAmountInput.setText("")
 
+            // UPI payments go through the adaptive pre-PIN re-auth gate (Phase B3).
+            if (transferType == "UPI") {
+                pendingAmount = amount
+                pendingBeneficiary = beneficiary
+                val intent = Intent(this, UpiPinActivity::class.java).apply {
+                    putExtra(UpiPinActivity.EXTRA_SESSION_TOKEN, token)
+                    putExtra(UpiPinActivity.EXTRA_AMOUNT, amount)
+                    putExtra(UpiPinActivity.EXTRA_BENEFICIARY, beneficiary)
+                    val handle = beneficiary.substringBefore("@").lowercase()
+                    val isNew = beneficiary !in knownBeneficiaries && handle !in trustedHandles
+                    putExtra(UpiPinActivity.EXTRA_IS_NEW_PAYEE, isNew)
+                }
+                upiPinLauncher.launch(intent)
+                return@setOnClickListener
+            }
+
             CoroutineScope(Dispatchers.Main).launch {
                 try {
                     val behavior = withContext(Dispatchers.IO) { buildBehaviorPayload(action = "TRANSFER") }
-                    val transferType = selectedTransferType()
                     val result =
                         withContext(Dispatchers.IO) {
                             client.scorePayment(
                                 token,
                                 amount,
-                                beneficiaryInput.text.toString(),
+                                beneficiary,
                                 transferType = transferType,
                                 behavior = behavior,
                             )
                         }
                     lastAmount = amount
-                    lastBeneficiary = beneficiaryInput.text.toString()
+                    lastBeneficiary = beneficiary
                     renderResult(result.body)
                 } catch (e: Exception) {
                     resultText.text = "Could not reach CogniGuard: ${e.message}"
@@ -220,36 +252,51 @@ class TransferActivity : AppCompatActivity() {
         val factor = stepUp.optString("challenge_type")
         resultText.text = "Verify it's you to continue: $factor"
         if (factor == "FINGERPRINT" || factor == "FACE" || factor == "PASSKEY") {
-            promptBiometric(factor) { submitPaymentStepUp(challengeId, "biometric-$factor-ok") }
+            promptBiometric(factor, challengeId) { assertion -> submitPaymentStepUp(challengeId, assertion) }
         } else {
             // Demo OTP/MPIN code (gateway accepts "123456"); see web StepUp parity.
             submitPaymentStepUp(challengeId, "123456")
         }
     }
 
-    private fun promptBiometric(factor: String, onSuccess: () -> Unit) {
+    /** Real BiometricPrompt with CryptoObject: the KeyStore private key (setUserAuthenticationRequired=true)
+     *  is used to sign [nonceToSign] (the payment challenge_id). The OS enforces a fresh biometric scan
+     *  before the key can complete the signature. Falls back to plain authenticate if key not yet bound. */
+    private fun promptBiometric(factor: String, nonceToSign: String, onSuccess: (assertion: String) -> Unit) {
+        val sig = if (nonceToSign.isNotEmpty()) BiometricEnrollmentManager.prepareSignature(nonceToSign) else null
         val executor = ContextCompat.getMainExecutor(this)
-        val prompt =
-            BiometricPrompt(
-                this,
-                executor,
-                object : BiometricPrompt.AuthenticationCallback() {
-                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                        onSuccess()
+        val prompt = BiometricPrompt(
+            this, executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    val assertion = if (sig != null) {
+                        runCatching {
+                            val bytes = result.cryptoObject?.signature?.sign()
+                            "keystore-sig:" + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        }.getOrElse { "biometric-$factor-ok" }
+                    } else {
+                        "biometric-$factor-ok"
                     }
-
-                    override fun onAuthenticationError(code: Int, errString: CharSequence) {
-                        resultText.text = "Step-up failed: $errString"
-                    }
-                },
-            )
-        val info =
-            BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Verify it's you")
-                .setSubtitle("Confirm your identity to continue ($factor)")
-                .setNegativeButtonText("Cancel")
-                .build()
-        prompt.authenticate(info)
+                    onSuccess(assertion)
+                }
+                override fun onAuthenticationError(code: Int, errString: CharSequence) {
+                    resultText.text = "Step-up failed: $errString"
+                }
+                override fun onAuthenticationFailed() {
+                    resultText.text = "Biometric not recognised — try again."
+                }
+            },
+        )
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Verify it's you")
+            .setSubtitle("Confirm your identity to continue ($factor)")
+            .setNegativeButtonText("Cancel")
+            .build()
+        if (sig != null) {
+            prompt.authenticate(info, BiometricPrompt.CryptoObject(sig))
+        } else {
+            prompt.authenticate(info)
+        }
     }
 
     private fun submitPaymentStepUp(challengeId: String, assertion: String) {
@@ -305,5 +352,9 @@ class TransferActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_SESSION_TOKEN = "session_token"
         const val EXTRA_USERNAME = "username"
+        // Beneficiaries the user has successfully paid before in this session → known payee
+        val knownBeneficiaries: MutableSet<String> = mutableSetOf()
+        // Trusted payee handles (name before @) that are always treated as known — demo seed
+        private val trustedHandles: Set<String> = setOf("ojas")
     }
 }

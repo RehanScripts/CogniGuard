@@ -124,25 +124,35 @@ def _step_up(
     )
 
 
-_DEMO_OTP_CODE = "123456"
 _OTP_LIKE_CHALLENGE_TYPES = frozenset({"OTP", "MPIN"})
 
 
-def accepts_assertion(challenge_type: str, otp_or_assertion: str) -> bool:
+def accepts_assertion(
+    challenge_type: str,
+    otp_or_assertion: str,
+    *,
+    challenge_id: str | None = None,
+    redis: object | None = None,
+) -> bool:
     """Whether a submitted step-up assertion clears the challenge (login + payment
     step-up share this exact check).
 
     Single-factor:
-      • OTP/MPIN: demo code "123456" is accepted.
+      • OTP/MPIN: verified against the Redis-backed code generated at challenge creation.
+        Pass ``challenge_id`` and ``redis`` to enable real verification; returns False
+        without them so callers can't accidentally skip Redis lookup.
       • FINGERPRINT/PASSKEY/VOICE_READBACK: any non-empty assertion means the
         device-local biometric already succeeded (device-attested).
 
     Two-factor (strong assurance): Android client sends a combined assertion string
-    "123456:biometric-FINGERPRINT-ok" after completing both steps. The gateway validates
-    the OTP part; the colon-separated biometric token is device-attested proof.
+    "<otp-code>:biometric-FINGERPRINT-ok" after completing both steps. The gateway
+    validates the OTP part via Redis; the colon-separated biometric token is device-
+    attested proof.
     """
     if challenge_type in _OTP_LIKE_CHALLENGE_TYPES:
-        # Support both plain OTP and combined two-factor "OTP:biometric-ok".
         otp_part = otp_or_assertion.split(":", 1)[0]
-        return otp_part == _DEMO_OTP_CODE
+        if challenge_id is not None and redis is not None:
+            from .otp import verify_otp
+            return verify_otp(challenge_id, otp_part, redis)
+        return False
     return bool(otp_or_assertion)

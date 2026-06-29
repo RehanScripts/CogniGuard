@@ -74,3 +74,17 @@ class ActiveSessionOut(BaseModel):
 class SecuritySettingsOut(BaseModel):
     trusted_devices: list[TrustedDeviceOut]
     active_sessions: list[ActiveSessionOut]
+
+
+class TrustDeviceRequest(BaseModel):
+    label: str | None = None
+
+
+class LoginHistoryOut(BaseModel):
+    event_id: str
+    event_type: str | None = None
+    risk_band: str | None = None
+    decision: str | None = None
+    device_label: str | None = None
+    ip_address: str | None = None
+    created_at: dt.datetime | None = None

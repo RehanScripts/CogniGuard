@@ -112,3 +112,25 @@ def load_calibration(user_id: str, *, redis: Redis) -> CalibrationParams:
     if not raw:
         return default_calibration()
     return _parse(raw)
+
+
+# Mobile AE reconstruction errors (Android TFLite) live in a completely different
+# numeric range than web ONNX errors: soft-keyboard hold_time=0 vs desktop ~100ms,
+# real swipe_velocity vs zero in CMU data, etc. push errors to 13k-20k where the
+# web-fit population calibration (threshold ~0.05) saturates to behavior_score=1.0.
+# A separate key prevents mobile from polluting the web calibration and vice versa.
+MOBILE_POPULATION_KEY = "calib:ae:population:mobile"
+
+
+def mobile_user_calibration_key(user_id: str) -> str:
+    return f"behavior:{user_id}:ae_calib:mobile"
+
+
+def load_mobile_calibration(user_id: str, *, redis: Redis) -> CalibrationParams:
+    """Mobile-specific calibration: `behavior:{user_id}:ae_calib:mobile` →
+    `calib:ae:population:mobile` → `default_calibration()`. Never falls through to the
+    web population key -- mobile and web AE errors are not comparable."""
+    raw = redis.get(mobile_user_calibration_key(user_id)) or redis.get(MOBILE_POPULATION_KEY)
+    if not raw:
+        return default_calibration()
+    return _parse(raw)

@@ -15,15 +15,18 @@ from ..models.device import Device, UserDevice
 from ..models.session import Session as SessionModel
 from ..models.transaction import Transaction
 from ..models.user import Account, User
+from ..models.session import LoginEvent
 from ..schemas.banking import (
     AccountOut,
     ActiveSessionOut,
     BeneficiaryOut,
+    LoginHistoryOut,
     ProfileOut,
     SecuritySettingsOut,
     TransactionOut,
     TrustedDeviceOut,
 )
+from ..utils import security
 from ..utils.mask import mask_account_number, mask_email, mask_phone
 
 
@@ -141,3 +144,81 @@ def get_security_settings(db: DbSession, user: User) -> SecuritySettingsOut:
     ]
 
     return SecuritySettingsOut(trusted_devices=trusted_devices, active_sessions=active_sessions)
+
+
+def trust_device(db: DbSession, user: User, device_id: str) -> TrustedDeviceOut:
+    """Mark a UserDevice as explicitly trusted and update binding_status."""
+    import uuid as _uuid
+
+    try:
+        did = _uuid.UUID(device_id)
+    except ValueError as exc:
+        raise ValueError("invalid device_id") from exc
+
+    link = db.scalar(
+        select(UserDevice).where(
+            UserDevice.user_id == user.user_id,
+            UserDevice.device_id == did,
+        )
+    )
+    if link is None:
+        raise ValueError("device not found for this user")
+
+    device = db.get(Device, did)
+    link.is_trusted = True
+    link.binding_status = "bound"
+    db.commit()
+
+    return TrustedDeviceOut(
+        device_id=str(did),
+        label=(" ".join(p for p in (device.os if device else None, device.browser if device else None) if p) or None),
+        is_trusted=True,
+        last_used_at=link.last_used_at,
+    )
+
+
+def revoke_session(db: DbSession, user: User, session_id: str) -> None:
+    """Terminate a session owned by *user* and add its JWT to the denylist."""
+    import uuid as _uuid
+
+    try:
+        sid = _uuid.UUID(session_id)
+    except ValueError as exc:
+        raise ValueError("invalid session_id") from exc
+
+    session = db.get(SessionModel, sid)
+    if session is None or session.user_id != user.user_id:
+        raise ValueError("session not found for this user")
+
+    session.status = "terminated"
+    if session.jwt_id:
+        security.revoke(session.jwt_id)
+    db.commit()
+
+
+def get_login_history(db: DbSession, user: User, *, limit: int = 20) -> list[LoginHistoryOut]:
+    """Recent login events for *user*, joined with device label for display."""
+    stmt = (
+        select(LoginEvent, Device)
+        .outerjoin(Device, LoginEvent.device_id == Device.device_id)
+        .where(LoginEvent.user_id == user.user_id)
+        .order_by(LoginEvent.created_at.desc())
+        .limit(limit)
+    )
+    results = []
+    for event, device in db.execute(stmt).all():
+        device_label = (
+            (" ".join(p for p in (device.os, device.browser) if p) or None) if device else None
+        )
+        results.append(
+            LoginHistoryOut(
+                event_id=str(event.event_id),
+                event_type=event.event_type,
+                risk_band=None,  # LoginEvent doesn't store risk_band; use decision as proxy
+                decision=event.decision,
+                device_label=device_label,
+                ip_address=None,  # LoginEvent has no ip; Session does but not joined here
+                created_at=event.created_at,
+            )
+        )
+    return results

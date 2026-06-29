@@ -38,6 +38,7 @@ DEFAULT_POLICY: dict[str, Any] = {
     },
     "amplifiers": {
         "NEW_BENEF_HIGHVAL": 1.5,
+        "AMOUNT_SPIKE": 1.4,
         "RAPID_FANOUT": 1.4,
         "DRAIN": 1.3,
         "COERCION_TIME": 1.2,
@@ -63,6 +64,7 @@ DEFAULT_POLICY: dict[str, Any] = {
     "trust_weights": {
         "support": {"genuineness": 0.5, "device": 0.3, "env": 0.2},
         "env_penalty": {"geo_change": 0.4, "new_device": 0.4, "vpn": 0.2},
+        "embedding_sim_weight": 0.25,  # F4: blend weight for cosine similarity in behavior_match
     },
     # Data-driven enrollment: a user is enrolled (identity gate active) only after this
     # many genuine login/app-open cycles; until then trust = support composite only,
@@ -79,6 +81,18 @@ DEFAULT_POLICY: dict[str, Any] = {
         "lookback_hours": 24,
         "reference_hours": 168,
         "min_samples": 30,
+    },
+    # Device-trust budget constants (UPGRADE_PLAN.md Phase B4). All caps used
+    # in device_trust.py become policy-readable so an admin can tune them live
+    # without redeploying; device_trust.compute() falls back to these defaults
+    # when the key is absent (backward compat, degraded-Redis fallback).
+    "device_trust": {
+        "rooted_ceiling": 10.0,       # hard cap — rooted/emulator can never look clean
+        "base_new": 35.0,             # first time we see this device fingerprint
+        "base_known": 75.0,           # device fingerprint seen before for this user
+        "penalty_impossible_travel": 40.0,
+        "bonus_biometric": 15.0,
+        "impossible_travel_kmh": 800.0,
     },
 }
 

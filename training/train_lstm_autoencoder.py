@@ -73,7 +73,7 @@ def build_model(
     n_features: int = N_FEATURES,
     feature_mean: np.ndarray,
     feature_var: np.ndarray,
-) -> tuple[keras.Model, keras.Model]:
+) -> tuple[keras.Model, keras.Model, keras.Model]:
     """`Input(16,9) -> Masking -> LSTM(32)->LSTM(16) -> RepeatVector ->
     LSTM(16,seq)->LSTM(32,seq) -> TimeDistributed(Dense(9))` (Implementation.md Phase
     16's architecture line), with a per-feature `Normalization` immediately after
@@ -85,12 +85,11 @@ def build_model(
     reconstructs every position regardless, with the loss masked separately via
     `sample_weight` in `fit()` (Keras's `RepeatVector` doesn't propagate a mask).
 
-    Returns `(training_model, serving_model)`: both wrap the *same* LSTM/Dense layer
-    instances (weights are shared, not copied), so fitting `training_model` updates
-    `serving_model` too. `training_model`'s output is in *normalized* space (the loss
-    target must also be normalized -- see `main()`); `serving_model`'s output is
-    denormalized back to raw `BehaviorFeatures` units and is the one ONNX/TFLite
-    export, calibration fitting, and parity checks all use.
+    Returns `(training_model, serving_model, encoder_model)`: all three wrap the *same*
+    LSTM/Dense layer instances (weights are shared, not copied), so fitting
+    `training_model` updates the others too. `encoder_model` outputs the 16-dim
+    bottleneck embedding (Phase F4 embedding store); `serving_model` is the full
+    autoencoder for reconstruction-error scoring and ONNX/TFLite export.
     """
     norm = keras.layers.Normalization(axis=-1, mean=feature_mean, variance=feature_var)
     denorm = keras.layers.Normalization(
@@ -101,18 +100,20 @@ def build_model(
     x = keras.layers.Masking(mask_value=0.0)(inputs)
     x = norm(x)
     x = keras.layers.LSTM(32, return_sequences=True)(x)
-    x = keras.layers.LSTM(16, return_sequences=False)(x)
-    x = keras.layers.RepeatVector(seq_len)(x)
+    bottleneck = keras.layers.LSTM(16, return_sequences=False)(x)  # 16-dim embedding (F4)
+
+    x = keras.layers.RepeatVector(seq_len)(bottleneck)
     x = keras.layers.LSTM(16, return_sequences=True)(x)
     x = keras.layers.LSTM(32, return_sequences=True)(x)
     normalized_recon = keras.layers.TimeDistributed(keras.layers.Dense(n_features))(x)
 
+    encoder_model = keras.Model(inputs, bottleneck, name="lstm_encoder")
     training_model = keras.Model(inputs, normalized_recon, name="lstm_autoencoder_training")
     training_model.compile(optimizer="adam", loss="mse")
 
     raw_recon = denorm(normalized_recon)
     serving_model = keras.Model(inputs, raw_recon, name="lstm_autoencoder")
-    return training_model, serving_model
+    return training_model, serving_model, encoder_model
 
 
 def reconstruction_errors(model: keras.Model, windows: np.ndarray, masks: np.ndarray) -> np.ndarray:
@@ -230,7 +231,7 @@ def main(
     normalized_targets = (train_windows - feature_mean) / np.sqrt(feature_var)
 
     tf.random.set_seed(seed)
-    training_model, serving_model = build_model(feature_mean=feature_mean, feature_var=feature_var)
+    training_model, serving_model, encoder_model = build_model(feature_mean=feature_mean, feature_var=feature_var)
     training_model.fit(
         train_windows,
         normalized_targets,
@@ -245,6 +246,7 @@ def main(
 
     onnx_bytes = export_onnx(serving_model)
     tflite_bytes = export_tflite(serving_model)
+    encoder_onnx_bytes = export_onnx(encoder_model)
     sample = val_windows[: min(8, len(val_windows))]
     onnx_diff = verify_onnx_parity(serving_model, onnx_bytes, sample, tolerance=tolerance)
     tflite_diff = verify_tflite_parity(serving_model, tflite_bytes, sample, tolerance=tolerance)
@@ -261,6 +263,11 @@ def main(
         local_path=os.path.join(
             settings.model_dir, "lstm_autoencoder_tflite", version, "model.tflite"
         ),
+    )
+    encoder_uri = s3_io.write_bytes(
+        encoder_onnx_bytes,
+        f"models/lstm_encoder/{version}/encoder.onnx",
+        local_path=os.path.join(settings.model_dir, "lstm_encoder", version, "encoder.onnx"),
     )
     calib_payload = {
         "scale": calib_params.scale,
@@ -296,6 +303,14 @@ def main(
         metrics=metrics,
         stage=stage,
     )
+    registry.register_model(
+        model_name="lstm_encoder",
+        model_type="keras.LSTMEncoder(onnx)",
+        version=version,
+        artifact_uri=encoder_uri,
+        metrics={"embedding_dim": 16, **metrics},
+        stage=stage,
+    )
 
     redis_client.set(calibration.POPULATION_CALIBRATION_KEY, json.dumps(calib_payload))
 
@@ -303,6 +318,7 @@ def main(
         "version": version,
         "onnx_artifact_uri": onnx_uri,
         "tflite_artifact_uri": tflite_uri,
+        "encoder_artifact_uri": encoder_uri,
         **metrics,
     }
 

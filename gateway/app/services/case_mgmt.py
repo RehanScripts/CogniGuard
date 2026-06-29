@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import uuid
 from typing import Any
 
@@ -20,9 +21,14 @@ from ..config import settings
 from ..models.governance import Case
 from ..models.scoring import RiskScore
 from ..models.transaction import Transaction
+from ..redis_client import redis_client
 from ..s3_client import get_s3
 from ..schemas.admin import CaseUpdate
 from . import audit
+
+logger = logging.getLogger(__name__)
+
+_SOC_FEED = "soc-feed"
 
 _RESOLVED_LABELS = {"confirmed_fraud", "false_positive"}
 
@@ -35,6 +41,13 @@ def _as_uuid(value: uuid.UUID | str) -> uuid.UUID:
     return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
 
 
+_SEVERITY_MAP = {
+    "very_high": "critical",
+    "high": "high",
+    "medium": "medium",
+}
+
+
 def maybe_open_case(
     db: DbSession,
     *,
@@ -44,19 +57,48 @@ def maybe_open_case(
     action: str,
     reason_codes: list[dict[str, Any]] | None = None,
 ) -> Case | None:
-    """No-op unless the outcome actually warrants analyst attention (Implementation.md:
-    "open a case on block/very_high")."""
-    if action != "block" and risk_band != "very_high":
+    """Open a case whenever the outcome warrants analyst attention: medium, high, or
+    very_high risk, or any action that isn't a clean allow on a low-risk event."""
+    if risk_band == "low" and action == "allow":
         return None
+    severity = _SEVERITY_MAP.get(risk_band, "high")
+    now = _now()
     case = Case(
         user_id=user_id,
         transaction_id=transaction_id,
         alert_type="FRAUD_RISK",
-        severity="critical" if risk_band == "very_high" else "high",
+        severity=severity,
         status="open",
     )
     db.add(case)
     db.commit()
+
+    # Publish after commit so the case is guaranteed in PostgreSQL before the
+    # WebSocket message reaches the dashboard (eliminates the race condition where
+    # the Cases page would refresh and find nothing yet).
+    try:
+        redis_client.publish(
+            _SOC_FEED,
+            json.dumps(
+                {
+                    "event_type": "case_opened",
+                    "case_id": str(case.case_id),
+                    "user_id": str(case.user_id) if case.user_id else None,
+                    "transaction_id": str(case.transaction_id) if case.transaction_id else None,
+                    "alert_type": case.alert_type,
+                    "severity": severity,
+                    "status": "open",
+                    "risk_band": risk_band,
+                    "action": action,
+                    "reason_codes": reason_codes or [],
+                    "created_at": now.isoformat(),
+                },
+                default=str,
+            ),
+        )
+    except Exception:
+        logger.warning("case_opened publish failed — dashboard will miss real-time update")
+
     return case
 
 

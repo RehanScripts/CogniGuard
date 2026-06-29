@@ -18,7 +18,7 @@ class RiskScore(Base):
     )
 
     score_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()")
     )
     entity_type: Mapped[str | None] = mapped_column(String(16))  # login|transaction
     entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # session_id or txn_id

@@ -95,8 +95,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:hint="Enter username"
-                        android:inputType="text"
-                        android:text="genuine" />
+                        android:inputType="text" />
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <TextView
@@ -136,7 +135,32 @@
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
                     android:layout_marginTop="20dp"
-                    android:text="Login" />
+                    android:text="Sign In" />
+
+                <!-- Create Account link -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="New customer? "
+                        android:textColor="@color/cbi_text_muted"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/createAccountLink"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Create Account"
+                        android:textColor="@color/cbi_primary"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/statusText"
@@ -357,8 +381,7 @@
                         app:boxCornerRadiusTopStart="14dp"
                         app:boxStrokeColor="@color/cbi_primary"
                         app:startIconDrawable="@drawable/ic_lock"
-                        app:startIconTint="@color/cbi_text_muted"
-                        app:helperText="Demo OTP: 123456">
+                        app:startIconTint="@color/cbi_text_muted">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/reAuthOtpInput"

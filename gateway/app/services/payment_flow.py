@@ -41,6 +41,7 @@ from ..scoring.registry import Registry
 from ..utils import fingerprint
 from . import audit, case_mgmt, event_producer, feature_reader, integrity
 from .adaptive_auth import accepts_assertion, select_factor
+from .otp import generate_otp, send_otp_email
 from .decision_engine import decide
 from .policy import active_policy
 from .txn_fraud_layer import resolve_controls
@@ -188,7 +189,10 @@ def score_payment(
         beneficiary_id=str(beneficiary.beneficiary_id) if beneficiary else None,
         session_id=str(session.session_id),
     )
-    bundle = feature_reader.read_bundle(str(user.user_id), ctx, redis=redis)
+    bundle = feature_reader.read_bundle(
+        str(user.user_id), ctx, redis=redis,
+        device_trust_budgets=policy.get("device_trust"),
+    )
     is_new_payee = bundle.txn.is_new_payee
 
     account = db.scalar(select(Account).where(Account.user_id == user.user_id))
@@ -235,6 +239,9 @@ def score_payment(
         db.add(challenge)
         db.flush()
         step_up.challenge_id = str(challenge.challenge_id)
+        if step_up.challenge_type in ("OTP", "MPIN"):
+            otp_code = generate_otp(step_up.challenge_id, redis)
+            background_tasks.add_task(send_otp_email, user.email or "", otp_code)
 
     txn_controls = resolve_controls(result.risk_band, result.amplifiers, txn_ctx, policy)
     # decision_engine's RISK_ACTION_MATRIX cooling_off/reconfirm cells (e.g. low risk +
@@ -322,6 +329,7 @@ def score_payment(
         action=decision.action,
     )
 
+    _pre_score_id = uuid.uuid4()
     background_tasks.add_task(
         audit.persist_scoring_outcome,
         db,
@@ -330,6 +338,7 @@ def score_payment(
         entity_type="transaction",
         entity_id=transaction_id,
         user_id=user.user_id,
+        score_id=_pre_score_id,
     )
     background_tasks.add_task(
         shadow.run_and_persist,
@@ -357,6 +366,7 @@ def score_payment(
         trust_score=result.trust_score,
         behavior_match_score=result.behavior_match_score,
         behavior_score_source=result.behavior_score_source,
+        score_id=str(_pre_score_id),
     )
     background_tasks.add_task(
         event_producer.emit_decision,
@@ -367,16 +377,15 @@ def score_payment(
         required_factors=response.required_factors,
         reason_codes=[rc.model_dump() for rc in result.reason_codes],
     )
-    if decision.action == "block" or result.risk_band == "very_high":
-        background_tasks.add_task(
-            case_mgmt.maybe_open_case,
-            db,
-            user_id=user.user_id,
-            transaction_id=transaction_id,
-            risk_band=result.risk_band,
-            action=decision.action,
-            reason_codes=[rc.model_dump() for rc in result.reason_codes],
-        )
+    background_tasks.add_task(
+        case_mgmt.maybe_open_case,
+        db,
+        user_id=user.user_id,
+        transaction_id=transaction_id,
+        risk_band=result.risk_band,
+        action=decision.action,
+        reason_codes=[rc.model_dump() for rc in result.reason_codes],
+    )
 
     return 200, response
 
@@ -407,7 +416,12 @@ def verify_payment_step_up(
     challenge_type = state["challenge_type"]
 
     challenge = db.get(AuthChallenge, uuid.UUID(req.challenge_id))
-    passed = accepts_assertion(challenge_type, req.otp_or_assertion)
+    passed = accepts_assertion(
+        challenge_type,
+        req.otp_or_assertion,
+        challenge_id=req.challenge_id,
+        redis=redis,
+    )
 
     if not passed:
         attempts = (challenge.attempts if challenge is not None else 0) + 1

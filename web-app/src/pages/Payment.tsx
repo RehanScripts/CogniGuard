@@ -122,8 +122,7 @@ export default function Payment() {
       {response && (
         <div className="mt-4 space-y-3">
           <div className="flex items-center gap-2">
-            <RiskBadge band={response.risk_band} score={response.risk_score} />
-            <span className="text-sm text-on-surface-variant">action: {response.action}</span>
+            <RiskBadge band={response.risk_band} />
           </div>
 
           {needsCoercionCheck && (

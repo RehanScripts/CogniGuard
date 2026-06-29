@@ -10,6 +10,8 @@ from .behavior import BehaviorPayload
 class RegisterRequest(BaseModel):
     username: str
     password: str
+    email: str | None = None
+    full_name: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -28,6 +30,11 @@ class ConsentRequest(BaseModel):
     username: str
     action: Literal["GRANT", "WITHDRAW"]
     consent_version: str | None = None
+
+
+class EmailVerifyRequest(BaseModel):
+    challenge_id: str
+    otp_code: str
 
 
 class NonceResponse(BaseModel):

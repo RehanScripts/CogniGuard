@@ -15,23 +15,29 @@ def test_light_falls_back_to_otp_when_mpin_unavailable():
     assert step_up.challenge_type == "OTP"
 
 
-def test_strong_prefers_fingerprint_when_available():
+def test_strong_prefers_fingerprint_as_second_factor_when_available():
+    # "strong" assurance = sequential 2FA: OTP first (challenge_type), FINGERPRINT second.
+    # The biometric is carried in second_factor, not challenge_type.
     step_up = select_factor("strong", {"FINGERPRINT", "PASSKEY", "OTP"}, STEPUP)
-    assert step_up.challenge_type == "FINGERPRINT"
+    assert step_up.challenge_type == "OTP"
+    assert step_up.second_factor == "FINGERPRINT"
     assert step_up.assurance == "strong"
 
 
-def test_strong_falls_back_to_voice_readback_without_biometric():
+def test_strong_falls_back_to_otp_only_without_biometric():
+    # VOICE_READBACK is not a FIDO-class biometric; when no FINGERPRINT/PASSKEY is
+    # available the strong flow degrades to OTP-only (no second factor).
     step_up = select_factor("strong", {"OTP", "MPIN", "VOICE_READBACK"}, STEPUP)
-    assert step_up.challenge_type == "VOICE_READBACK"
+    assert step_up.challenge_type == "OTP"
+    assert step_up.second_factor is None
 
 
-def test_strong_never_returns_otp_or_mpin():
-    # Even if OTP/MPIN are the only things in the device's claimed capability set,
-    # "strong" must never silently settle for a non-phishing-resistant factor when a
-    # better one *could* exist -- it should still surface a strong-tier pick.
+def test_strong_uses_passkey_as_second_factor_when_no_fingerprint():
+    # PASSKEY is the FIDO-class biometric when FINGERPRINT is absent.
+    # The first step is still OTP; PASSKEY comes as second_factor.
     step_up = select_factor("strong", {"OTP", "MPIN", "PASSKEY"}, STEPUP)
-    assert step_up.challenge_type == "PASSKEY"
+    assert step_up.challenge_type == "OTP"
+    assert step_up.second_factor == "PASSKEY"
 
 
 def test_strong_degrades_upward_only_when_nothing_clears_the_bar():

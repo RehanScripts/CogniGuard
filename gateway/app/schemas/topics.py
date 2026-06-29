@@ -94,6 +94,8 @@ class RiskScoreEvent(BaseModel):
     # Threaded through so the SOC Live feed can link a row straight to its UserDetail
     # drill-down (`/users/{user_id}`) without a second lookup by entity_id.
     user_id: str | None = None
+    # Pre-generated UUID threaded from the flow so the WS feed can open SHAP/AI directly.
+    score_id: str | None = None
 
 
 class DecisionEvent(BaseModel):

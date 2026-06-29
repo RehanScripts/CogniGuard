@@ -1,10 +1,10 @@
 {
   "channel": "web",
   "source": "web_sdk",
-  "nonce": "Udmsml6qOlZ35b-938z73g",
-  "seq": 1782391781174,
-  "ts": "2026-06-25T12:49:41.174882+00:00",
-  "integrity_sig": "2413089b9ce4a7e9aceab43136d51cd62ee8f7d1be8eb71ff652b942b64fe655",
+  "nonce": "z8JbLXgRoKiMGvDfOhIf4Q",
+  "seq": 1782743892995,
+  "ts": "2026-06-29T14:38:12.995955+00:00",
+  "integrity_sig": "f227e40f742c6be39e083501ef31d10d10e48c8be00ed411d5924cdc500208e9",
   "device": {
     "fingerprint": "replay-demo-device",
     "ua": "cogniguard-fixture-generator",

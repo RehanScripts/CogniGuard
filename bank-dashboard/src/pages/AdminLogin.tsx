@@ -1,3 +1,4 @@
+import { Lock, Shield } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -30,51 +31,76 @@ export default function AdminLogin() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-cbi-primary-light to-cbi-surface px-4 py-16">
-      <div className="mb-6 flex flex-col items-center gap-2">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-cbi-primary text-lg font-bold text-white">
-          CB
-        </span>
-        <h1 className="text-xl font-semibold text-cbi-text">CogniGuard SOC</h1>
-        <p className="text-sm text-gray-500">Central Bank of India · Fraud Operations</p>
-      </div>
-      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow">
-        <form className="mt-2 space-y-3" onSubmit={handleSubmit}>
-          <div>
-            <label className="block text-sm text-gray-600" htmlFor="email">
-              Email
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              className="mt-1 w-full rounded border px-2 py-1 focus:border-cbi-primary focus:outline-none"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
+    <div className="flex min-h-screen items-center justify-center bg-soc-bg px-4">
+      <div className="w-full max-w-sm">
+        {/* Header */}
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-soc-primary text-white shadow-lg">
+            <Shield className="h-7 w-7" />
           </div>
-          <div>
-            <label className="block text-sm text-gray-600" htmlFor="password">
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              className="mt-1 w-full rounded border px-2 py-1 focus:border-cbi-primary focus:outline-none"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full rounded bg-cbi-primary px-3 py-2 text-white hover:bg-cbi-primary-dark disabled:opacity-50"
-          >
-            {busy ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-        {error && <p className="mt-3 text-sm text-cbi-accent">{error}</p>}
+          <h1 className="font-headline text-2xl font-bold text-soc-text">CogniGuard SOC</h1>
+          <p className="mt-1 text-sm text-soc-muted">Heritage Trust Bank · Fraud Operations</p>
+        </div>
+
+        {/* Card */}
+        <div className="card p-6">
+          <h2 className="mb-5 text-base font-semibold text-soc-text">Sign in to SOC Portal</h2>
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-soc-muted" htmlFor="email">
+                Email Address
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                className="w-full rounded-lg border border-soc-border bg-soc-bg px-3 py-2.5 text-sm text-soc-text placeholder-soc-muted outline-none transition-colors focus:border-soc-primary focus:ring-1 focus:ring-soc-primary/20"
+                placeholder="analyst@bank.in"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-soc-muted" htmlFor="password">
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  className="w-full rounded-lg border border-soc-border bg-soc-bg py-2.5 pl-3 pr-10 text-sm text-soc-text placeholder-soc-muted outline-none transition-colors focus:border-soc-primary focus:ring-1 focus:ring-soc-primary/20"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <Lock className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-soc-muted/60" />
+              </div>
+            </div>
+
+            {error && (
+              <div className="rounded-lg border border-soc-danger-light bg-soc-danger-light px-3 py-2.5 text-sm font-medium text-soc-danger">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={busy}
+              className="w-full rounded-lg bg-soc-primary py-2.5 text-sm font-bold text-white transition-all hover:bg-cbi-primary-dark active:scale-[0.98] disabled:opacity-60"
+            >
+              {busy ? "Signing in…" : "Sign In"}
+            </button>
+          </form>
+        </div>
+
+        <p className="mt-6 text-center text-xs text-soc-muted">
+          Restricted access · Heritage Trust Bank Internal Systems
+        </p>
       </div>
     </div>
   );

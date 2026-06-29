@@ -1,8 +1,9 @@
-package com.cogniguard.demoapp
+﻿package com.cogniguard.demoapp
 
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Base64
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -30,7 +31,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.time.Instant
 
-/** Demo IB app login screen â€” parity with `web-app/src/pages/Login.tsx`
+/** Demo IB app login screen — parity with `web-app/src/pages/Login.tsx`
  * (Implementation.md Phase 18/24): same register â†’ consent â†’ login sequence,
  * same allow/verify/block branching.
  *
@@ -40,7 +41,7 @@ import java.time.Instant
  *   High risk   â†’ verify (strong) â†’ visible Step 1 OTP â†’ Step 2 Biometric â†’ Dashboard
  *   Critical    â†’ verify (strong) â†’ same 2FA; block only if all attempts exhausted
  *
- * All step-up interactions are EXPLICIT â€” no silent auto-submit. User must tap
+ * All step-up interactions are EXPLICIT — no silent auto-submit. User must tap
  * "Verify OTP" or "Fingerprint / Face ID" buttons. The re-auth card slides in
  * automatically when action=verify; the login form is kept but dimmed. */
 class LoginActivity : AppCompatActivity() {
@@ -136,9 +137,6 @@ class LoginActivity : AppCompatActivity() {
 
             CoroutineScope(Dispatchers.Main).launch {
                 try {
-                    withContext(Dispatchers.IO) { client.register(username, password) }
-                    withContext(Dispatchers.IO) { client.setConsent(username) }
-
                     val behavior = withContext(Dispatchers.IO) { buildBehaviorPayload(action = "LOGIN") }
                     val result = withContext(Dispatchers.IO) { client.login(username, password, behavior) }
                     val body = result.body
@@ -153,7 +151,11 @@ class LoginActivity : AppCompatActivity() {
                         }
                         "verify" -> handleVerify(body)
                         "block" -> {
-                            statusText.text = "Login denied. Please contact support."
+                            if (body.optString("risk_band") == "very_high") {
+                                showVeryHighRiskBlock()
+                            } else {
+                                statusText.text = "Login denied. Please contact support."
+                            }
                         }
                         else -> statusText.text = "Unexpected response: ${body.optString("action")}"
                     }
@@ -163,7 +165,7 @@ class LoginActivity : AppCompatActivity() {
             }
         }
 
-        // OTP submit button â€” explicit user tap required
+        // OTP submit button — explicit user tap required
         reAuthOtpSubmitButton.setOnClickListener {
             val otp = reAuthOtpInput.text?.toString()?.trim() ?: ""
             if (otp.isEmpty()) {
@@ -175,37 +177,132 @@ class LoginActivity : AppCompatActivity() {
             submitOtpStep(otp)
         }
 
-        // Fingerprint button â€” explicit user tap
+        // Fingerprint button — explicit user tap
         reAuthFingerprintButton.setOnClickListener {
             reAuthFingerprintButton.isEnabled = false
             reAuthFaceButton.isEnabled = false
-            promptBiometric("FINGERPRINT") { onBiometricSuccess("FINGERPRINT") }
+            promptBiometric("FINGERPRINT", pendingChallengeId) { assertion ->
+                onBiometricSuccess("FINGERPRINT", assertion)
+            }
         }
 
-        // Face ID button â€” explicit user tap
+        // Face ID button - explicit user tap
         reAuthFaceButton.setOnClickListener {
             reAuthFingerprintButton.isEnabled = false
             reAuthFaceButton.isEnabled = false
-            promptBiometric("FACE") { onBiometricSuccess("FACE") }
+            promptBiometric("FACE", pendingChallengeId) { assertion ->
+                onBiometricSuccess("FACE", assertion)
+            }
         }
 
-        // Cancel â€” return to login form cleanly
+        // Cancel - return to login form cleanly
         reAuthCancelLink.setOnClickListener {
             resetReAuthState()
             statusText.text = "Verification cancelled. Please log in again."
         }
+
+        // Show success banner when arriving from registration
+        if (intent.getBooleanExtra("registered", false)) {
+            statusText.text = "Account created successfully. Please sign in."
+        }
+
+        // "Create Account" link - navigates to RegisterActivity
+        findViewById<TextView>(R.id.createAccountLink).setOnClickListener {
+            startActivity(Intent(this, RegisterActivity::class.java))
+        }
+    }
+
+    private fun showVeryHighRiskBlock() {
+        loginCard.alpha = 0.3f
+        statusText.text = ""
+        // Show block overlay via a simple alert dialog
+        val builder = android.app.AlertDialog.Builder(this)
+        builder.setTitle("Access Blocked")
+        builder.setMessage(
+            "Our security system has detected critical risk indicators on this session.\n\n" +
+            "For your protection, this login attempt has been blocked.\n\n" +
+            "Please contact Central Bank of India support:\n1800-XXX-XXXX"
+        )
+        builder.setPositiveButton("OK") { _, _ -> loginCard.alpha = 1.0f }
+        builder.setCancelable(false)
+        builder.show()
     }
 
     // ---------------------------------------------------------------------------
     //  NAVIGATION
     // ---------------------------------------------------------------------------
 
-    /** Lands on `DashboardActivity` on every `allow` â€” Phase 31 nav flow:
-     *  Login â†’ Dashboard â†’ Transfer â†’ Success. Carries continuous-identity
-     *  verification doubles through as `Double.NaN` when absent. */
+    /** Lands on `DashboardActivity` on every `allow`.
+     *  Phase C3: If no KeyStore key is bound yet, triggers a BiometricPrompt for enrollment
+     *  (CryptoObject signs the server nonce), then navigates. Already-enrolled devices
+     *  navigate directly. */
     private fun goToDashboard(body: JSONObject) {
+        val sessionToken = body.optString("session_token", "")
+        if (sessionToken.isNotEmpty() && !BiometricEnrollmentManager.isKeyBound()) {
+            triggerEnrollmentThenNavigate(sessionToken, body)
+        } else {
+            navigateToDashboard(body, sessionToken)
+        }
+    }
+
+    /** Generate the KeyStore key, fetch the server enrollment nonce, show a BiometricPrompt
+     *  with the CryptoObject so the OS requires a fresh biometric before signing.
+     *  On success the signed nonce is POSTed to bind-biometric then Dashboard opens.
+     *  On skip / error enrollment is skipped silently and Dashboard opens anyway. */
+    private fun triggerEnrollmentThenNavigate(sessionToken: String, loginBody: JSONObject) {
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val generated = withContext(Dispatchers.IO) {
+                    BiometricEnrollmentManager.generateKeyIfAbsent()
+                }
+                if (!generated) { navigateToDashboard(loginBody, sessionToken); return@launch }
+
+                val challenge = withContext(Dispatchers.IO) {
+                    BiometricEnrollmentManager.fetchEnrollChallenge(client, sessionToken)
+                }
+                if (challenge == null) { navigateToDashboard(loginBody, sessionToken); return@launch }
+
+                val sig = BiometricEnrollmentManager.prepareSignature(challenge.nonce)
+                if (sig == null) { navigateToDashboard(loginBody, sessionToken); return@launch }
+
+                val executor = ContextCompat.getMainExecutor(this@LoginActivity)
+                val prompt = BiometricPrompt(
+                    this@LoginActivity, executor,
+                    object : BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                            CoroutineScope(Dispatchers.IO).launch {
+                                val pubPem = BiometricEnrollmentManager.getPublicKeyPem()
+                                val sigBytes = result.cryptoObject?.signature?.sign()
+                                val sigB64 = sigBytes?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
+                                if (pubPem != null && sigB64 != null) {
+                                    runCatching {
+                                        client.bindBiometric(sessionToken, challenge.deviceId, challenge.nonce, pubPem, sigB64)
+                                    }
+                                }
+                                withContext(Dispatchers.Main) { navigateToDashboard(loginBody, sessionToken) }
+                            }
+                        }
+                        override fun onAuthenticationError(code: Int, errString: CharSequence) {
+                            navigateToDashboard(loginBody, sessionToken)
+                        }
+                        override fun onAuthenticationFailed() { /* user can retry */ }
+                    },
+                )
+                val info = BiometricPrompt.PromptInfo.Builder()
+                    .setTitle("Set up secure device binding")
+                    .setSubtitle("Authenticate to link this device to your account")
+                    .setNegativeButtonText("Skip")
+                    .build()
+                prompt.authenticate(info, BiometricPrompt.CryptoObject(sig))
+            } catch (_: Exception) {
+                navigateToDashboard(loginBody, sessionToken)
+            }
+        }
+    }
+
+    private fun navigateToDashboard(body: JSONObject, sessionToken: String) {
         val intent = Intent(this@LoginActivity, DashboardActivity::class.java)
-        intent.putExtra(DashboardActivity.EXTRA_SESSION_TOKEN, body.optString("session_token", null))
+        intent.putExtra(DashboardActivity.EXTRA_SESSION_TOKEN, sessionToken.ifEmpty { null })
         intent.putExtra(DashboardActivity.EXTRA_USERNAME, currentUsername)
         if (!body.isNull("trust_score"))
             intent.putExtra(DashboardActivity.EXTRA_TRUST_SCORE, body.optDouble("trust_score"))
@@ -227,7 +324,7 @@ class LoginActivity : AppCompatActivity() {
         val enrollment = body.optJSONObject("enrollment")
         if (enrollment == null) { view.text = ""; return }
         view.text = if (enrollment.optBoolean("complete")) {
-            "âœ“ Security profile calibrated â€” identity verification active."
+            "✓ Security profile calibrated — identity verification active."
         } else {
             "Security Profile Calibration ${enrollment.optInt("collected")}/${enrollment.optInt("required")}"
         }
@@ -244,7 +341,7 @@ class LoginActivity : AppCompatActivity() {
     }
 
     // ---------------------------------------------------------------------------
-    //  ADAPTIVE RE-AUTHENTICATION â€” ENTRY POINT
+    //  ADAPTIVE RE-AUTHENTICATION — ENTRY POINT
     // ---------------------------------------------------------------------------
 
     /** Called when the backend returns `action=verify`.
@@ -259,7 +356,7 @@ class LoginActivity : AppCompatActivity() {
     private fun handleVerify(body: JSONObject) {
         val stepUp = body.optJSONObject("step_up")
         if (stepUp == null) {
-            statusText.text = "Step-up required â€” missing challenge details."
+            statusText.text = "Step-up required — missing challenge details."
             return
         }
         pendingChallengeId = stepUp.optString("challenge_id")
@@ -296,9 +393,9 @@ class LoginActivity : AppCompatActivity() {
     ) {
         // Risk badge color + label
         val (badgeColor, badgeLabel, riskLabelText) = when (riskBand) {
-            "high", "very_high" -> Triple(Color.parseColor("#DC2626"), "HIGH", "High Risk â€” Enhanced verification required")
-            "medium"            -> Triple(Color.parseColor("#D97706"), "MEDIUM", "Medium Risk â€” Additional verification required")
-            else                -> Triple(Color.parseColor("#0369A1"), riskBand.uppercase(), "Elevated Risk â€” Please verify your identity")
+            "high", "very_high" -> Triple(Color.parseColor("#DC2626"), "HIGH", "High Risk — Enhanced verification required")
+            "medium"            -> Triple(Color.parseColor("#D97706"), "MEDIUM", "Medium Risk — Additional verification required")
+            else                -> Triple(Color.parseColor("#0369A1"), riskBand.uppercase(), "Elevated Risk — Please verify your identity")
         }
         reAuthRiskBadge.text = badgeLabel
         reAuthRiskBadge.chipBackgroundColor = android.content.res.ColorStateList.valueOf(badgeColor)
@@ -328,7 +425,7 @@ class LoginActivity : AppCompatActivity() {
             reAuthOtpSubmitButton.isEnabled = true
             reAuthOtpSection.visibility = View.VISIBLE
         } else {
-            // Direct biometric (light assurance with biometric factor â€” future)
+            // Direct biometric (light assurance with biometric factor — future)
             reAuthOtpSection.visibility = View.GONE
         }
 
@@ -404,7 +501,7 @@ class LoginActivity : AppCompatActivity() {
      *
      * For single-factor (light assurance): submits the plain OTP.
      * For two-factor (strong assurance): submits the OTP part; if backend
-     * returns allow it means the backend accepted the combined assertion â€” but
+     * returns allow it means the backend accepted the combined assertion — but
      * we never send the combined assertion until the biometric step also passes.
      * So for 2FA: on OTP success from backend we transition locally to Step 2
      * (biometric) without completing the final session grant yet. */
@@ -420,15 +517,15 @@ class LoginActivity : AppCompatActivity() {
                 val action = body.optString("action")
 
                 if (action == "allow" && !isTwoFactor) {
-                    // Single-factor OTP succeeded â€” grant access
-                    showReAuthStatus("âœ“ OTP verified. Granting accessâ€¦", isError = false)
+                    // Single-factor OTP succeeded — grant access
+                    showReAuthStatus("✓ OTP verified. Granting accessâ€¦", isError = false)
                     reAuthOtpSection.visibility = View.GONE
                     goToDashboard(body)
                 } else if (action == "allow" && isTwoFactor) {
-                    // Backend accepted the OTP â€” now require biometric second step locally
+                    // Backend accepted the OTP — now require biometric second step locally
                     otpVerified = true
                     sessionTokenFromOtpStep = body  // store full body with session_token for final nav
-                    showReAuthStatus("âœ“ OTP verified. Now complete biometric verification.", isError = false)
+                    showReAuthStatus("✓ OTP verified. Now complete biometric verification.", isError = false)
                     reAuthOtpSection.visibility = View.GONE
                     activateStep(2)
 
@@ -442,20 +539,20 @@ class LoginActivity : AppCompatActivity() {
                     reAuthFingerprintButton.isEnabled = true
                     reAuthFaceButton.isEnabled = true
                 } else if (action == "verify") {
-                    // Wrong OTP â€” increment attempt counter
+                    // Wrong OTP — increment attempt counter
                     stepUpAttempts++
                     val remaining = maxAttempts - stepUpAttempts
                     reAuthOtpSubmitButton.isEnabled = true
                     reAuthOtpSubmitButton.text = if (isTwoFactor) "Verify OTP (Step 1)" else "Verify OTP"
                     reAuthOtpInput.setText("")
                     reAuthOtpInput.requestFocus()
-                    showReAuthStatus("âœ— Incorrect OTP. Please try again.", isError = true)
+                    showReAuthStatus("âœ-- Incorrect OTP. Please try again.", isError = true)
                     if (remaining > 0) {
                         reAuthRetryText.text = "$remaining attempt${if (remaining == 1) "" else "s"} remaining"
                         reAuthRetryText.visibility = View.VISIBLE
                     }
                 } else {
-                    // Blocked â€” attempts exhausted
+                    // Blocked — attempts exhausted
                     onStepUpBlocked("Maximum verification attempts exceeded. Access denied.")
                 }
             } catch (e: Exception) {
@@ -470,44 +567,72 @@ class LoginActivity : AppCompatActivity() {
     //  BIOMETRIC STEP
     // ---------------------------------------------------------------------------
 
-    private fun promptBiometric(factor: String, onSuccess: () -> Unit) {
-        val factorName = factor.lowercase().replaceFirstChar { it.uppercase() }
-        android.util.Log.d("DemoAuthFlow", "Displaying Mock Biometric Prompt Dialog")
-        val dialog = android.app.AlertDialog.Builder(this)
+    /**
+     * Show a real BiometricPrompt gated by a KeyStore CryptoObject so the OS enforces
+     * a fresh fingerprint/face scan before the private key can be used to sign.
+     *
+     * If the device key is bound ([BiometricEnrollmentManager.isKeyBound]), a Signature
+     * pre-loaded with [nonceToSign] is wrapped in CryptoObject; on success the OS unlocks
+     * the key and [onSuccess] receives "keystore-sig:<base64>" (server-verifiable via the
+     * stored public key). If the key is not yet bound (enrollment still in progress) the
+     * prompt runs without CryptoObject and [onSuccess] receives "biometric-$factor-ok"
+     * as a graceful fallback.
+     */
+    private fun promptBiometric(
+        factor: String,
+        nonceToSign: String,
+        onSuccess: (assertion: String) -> Unit,
+    ) {
+        val sig = if (nonceToSign.isNotEmpty()) BiometricEnrollmentManager.prepareSignature(nonceToSign) else null
+        val executor = ContextCompat.getMainExecutor(this)
+        val prompt = BiometricPrompt(
+            this, executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    val assertion = if (sig != null) {
+                        runCatching {
+                            val bytes = result.cryptoObject?.signature?.sign()
+                            "keystore-sig:" + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        }.getOrElse { "biometric-$factor-ok" }
+                    } else {
+                        "biometric-$factor-ok"
+                    }
+                    onSuccess(assertion)
+                }
+                override fun onAuthenticationError(code: Int, errString: CharSequence) {
+                    reAuthFingerprintButton.isEnabled = true
+                    reAuthFaceButton.isEnabled = true
+                    showReAuthStatus("Biometric error: $errString", isError = true)
+                }
+                override fun onAuthenticationFailed() {
+                    reAuthFingerprintButton.isEnabled = true
+                    reAuthFaceButton.isEnabled = true
+                    showReAuthStatus("Biometric not recognised -- try again.", isError = true)
+                }
+            },
+        )
+        val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Verify it's you")
-            .setMessage("Confirm your identity to complete login ($factor)\n\n(Demo: Simulating $factorName scan...)")
-            .setCancelable(false)
-            .show()
-
-        // Simulate biometric scan delay to allow recording of the screen state
-        CoroutineScope(Dispatchers.Main).launch {
-            kotlinx.coroutines.delay(1500)
-            dialog.dismiss()
-            onSuccess()
+            .setSubtitle("Confirm with ${factor.lowercase().replaceFirstChar { it.uppercase() }} to continue")
+            .setNegativeButtonText("Cancel")
+            .build()
+        if (sig != null) {
+            prompt.authenticate(info, BiometricPrompt.CryptoObject(sig))
+        } else {
+            prompt.authenticate(info)
         }
     }
 
-    /** Called when the biometric step succeeds on device (BiometricPrompt callback).
-     *
-     * For single-factor biometric: submits the biometric assertion to backend.
-     * For two-factor (Step 2 after OTP): backend already granted the session after
-     * OTP â€” here we just confirm the local biometric and navigate to Dashboard
-     * using the session token from the OTP-step response. In production this would
-     * combine the assertions into a single request, but for the demo the session
-     * token from the OTP backend confirm is sufficient. */
-    private fun onBiometricSuccess(factor: String) {
-        showReAuthStatus("âœ“ Biometric verified. Granting accessâ€¦", isError = false)
+    /** [assertion] is "keystore-sig:<b64>" when CryptoObject signed the challenge, or
+     *  "biometric-$factor-ok" as a fallback when the key was not yet enrolled. */
+    private fun onBiometricSuccess(factor: String, assertion: String) {
+        showReAuthStatus("✓ Biometric verified. Granting access…", isError = false)
         reAuthBiometricSection.visibility = View.GONE
 
         if (pendingAssurance == "strong" && otpVerified) {
-            // Two-factor complete â€” session already established at OTP step.
-            // Submit a confirming biometric assertion with the combined format.
-            val biometricToken = "biometric-$factor-ok"
-            // Delegate final navigation; the session token was stored during OTP step.
-            finishTwoFactorLogin(biometricToken)
+            finishTwoFactorLogin(assertion)
         } else {
-            // Single-factor biometric: submit to backend
-            submitBiometricAssertion("biometric-$factor-ok")
+            submitBiometricAssertion(assertion)
         }
     }
 
@@ -537,7 +662,7 @@ class LoginActivity : AppCompatActivity() {
     private fun finishTwoFactorLogin(biometricToken: String) {
         CoroutineScope(Dispatchers.Main).launch {
             try {
-                showReAuthStatus("âœ“ Two-factor verification complete. Welcome!", isError = false)
+                showReAuthStatus("✓ Two-factor verification complete. Welcome!", isError = false)
                 withContext(Dispatchers.IO) { Thread.sleep(600) }
                 // Use the session body stored during the OTP step
                 val dashBody = sessionTokenFromOtpStep ?: JSONObject()

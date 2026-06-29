@@ -92,11 +92,13 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 export function register(
   username: string,
   password: string,
+  email?: string,
+  fullName?: string,
 ): Promise<ApiResult<{ user_id?: string; status?: string; detail?: string }>> {
   return request("/api/v1/auth/register", {
     method: "POST",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, email, full_name: fullName }),
   });
 }
 
@@ -120,6 +122,30 @@ export function login(
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify({ username, password, behavior }),
+  });
+}
+
+export interface BehaviorIngestResponse {
+  action: "allow" | "verify";
+  reauth: boolean;
+  risk_score: number;
+  risk_band: RiskBand;
+  reason_codes: ReasonCode[];
+  degraded_mode: boolean;
+  model_version: string;
+  trust_score?: number | null;
+  behavior_match_score?: number | null;
+  device_trust?: number | null;
+}
+
+export function ingestBehavior(
+  token: string,
+  behavior: BehaviorPayload,
+): Promise<ApiResult<BehaviorIngestResponse>> {
+  return request("/api/v1/behavior/ingest", {
+    method: "POST",
+    headers: { ...JSON_HEADERS, Authorization: `Bearer ${token}` },
+    body: JSON.stringify(behavior),
   });
 }
 
@@ -233,6 +259,16 @@ export interface SecuritySettingsOut {
   active_sessions: ActiveSessionOut[];
 }
 
+export interface LoginHistoryOut {
+  event_id: string;
+  event_type: string | null;
+  risk_band: string | null;
+  decision: string | null;
+  device_label: string | null;
+  ip_address: string | null;
+  created_at: string | null;
+}
+
 function authedGet<T>(path: string, token: string): Promise<ApiResult<T>> {
   return request(path, { headers: { Authorization: `Bearer ${token}` } });
 }
@@ -258,6 +294,25 @@ export function listBeneficiaries(token: string): Promise<ApiResult<BeneficiaryO
 
 export function getSecuritySettings(token: string): Promise<ApiResult<SecuritySettingsOut>> {
   return authedGet("/api/v1/banking/security-settings", token);
+}
+
+export function trustDevice(token: string, deviceId: string): Promise<ApiResult<TrustedDeviceOut>> {
+  return request(`/api/v1/banking/devices/${deviceId}/trust`, {
+    method: "POST",
+    headers: { ...JSON_HEADERS, Authorization: `Bearer ${token}` },
+    body: JSON.stringify({}),
+  });
+}
+
+export function revokeSession(token: string, sessionId: string): Promise<ApiResult<void>> {
+  return request(`/api/v1/banking/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function getLoginHistory(token: string): Promise<ApiResult<LoginHistoryOut[]>> {
+  return authedGet("/api/v1/banking/login-history", token);
 }
 
 const SESSION_TOKEN_KEY = "cogniguard_session_token";
