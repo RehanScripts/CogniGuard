@@ -2,7 +2,7 @@
 
 **Central Bank of India · Hackathon Submission**
 
-[![CI](https://github.com/xemorph64/Cogni_Guard/actions/workflows/ci.yml/badge.svg)](https://github.com/xemorph64/Cogni_Guard/actions/workflows/ci.yml)
+(https://github.com/xemorph64/Cogni_Guard/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
