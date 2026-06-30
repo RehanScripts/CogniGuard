@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "final_*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Python: gateway tests ──────────────────────────────────────────────────
+  gateway:
+    name: Gateway (pytest)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cogniguard
+          POSTGRES_PASSWORD: cogniguard_dev_pw
+          POSTGRES_DB: cogniguard
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cogniguard"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      POSTGRES_USER: cogniguard
+      POSTGRES_PASSWORD: cogniguard_dev_pw
+      POSTGRES_DB: cogniguard
+      DATABASE_URL: postgresql+psycopg://cogniguard:cogniguard_dev_pw@localhost:5432/cogniguard
+      REDIS_URL: redis://localhost:6379/0
+      KAFKA_BOOTSTRAP: localhost:9092
+      S3_ENDPOINT: http://localhost:9000
+      S3_BUCKET: cogniguard
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      JWT_SECRET: ci-test-secret-not-for-production
+      JWT_ALG: HS256
+      JWT_TTL_MINUTES: 30
+      MODEL_DIR: /tmp/models
+      APP_ENV: test
+      LOG_LEVEL: WARNING
+      RUN_MIGRATIONS_ON_START: "false"
+      RUN_SEED_ON_START: "false"
+      LOGIN_LATENCY_BUDGET_MS: 300
+      PAYMENT_LATENCY_BUDGET_MS: 500
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: gateway/pyproject.toml
+
+      - name: Install dependencies
+        working-directory: gateway
+        run: pip install -e ".[dev]"
+
+      - name: Apply migrations
+        working-directory: gateway
+        run: alembic upgrade head
+
+      - name: Run pytest
+        working-directory: gateway
+        run: python -m pytest -q --tb=short
+
+  # ── TypeScript: behavior-sdk ───────────────────────────────────────────────
+  behavior-sdk:
+    name: behavior-sdk (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: behavior-sdk/package-lock.json
+      - run: npm ci
+        working-directory: behavior-sdk
+      - run: npm test
+        working-directory: behavior-sdk
+
+  # ── TypeScript: web-app ────────────────────────────────────────────────────
+  web-app:
+    name: web-app (vitest + tsc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web-app/package-lock.json
+      - run: npm ci
+        working-directory: web-app
+      - run: npx tsc --noEmit
+        working-directory: web-app
+      - run: npm test
+        working-directory: web-app
+
+  # ── TypeScript: bank-dashboard ─────────────────────────────────────────────
+  bank-dashboard:
+    name: bank-dashboard (vitest + tsc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: bank-dashboard/package-lock.json
+      - run: npm ci
+        working-directory: bank-dashboard
+      - run: npx tsc --noEmit
+        working-directory: bank-dashboard
+      - run: npm test
+        working-directory: bank-dashboard
+
+  # ── Python: lint ──────────────────────────────────────────────────────────
+  lint:
+    name: Python lint (ruff + black)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: gateway/pyproject.toml
+      - run: pip install ruff black
+      - run: ruff check gateway/
+      - run: black --check gateway/
