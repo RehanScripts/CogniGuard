@@ -53,3 +53,15 @@ android/capture-sdk/src/main/assets/*.tflite
 *.swp
 .idea/
 .vscode/
+
+# --- Internal / non-evaluator docs ---
+CLAUDE.md
+PROGRESS.md
+UPGRADE_PLAN.md
+Upgrade.md
+walkthrough.md
+PROTOTYPE_TESTING_AND_UI_PLAN.md
+android_login_log.txt
+gateway_log.txt
+logcat.txt
+window_dump.xml
