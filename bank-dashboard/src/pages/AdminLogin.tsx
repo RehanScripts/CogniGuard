@@ -39,7 +39,7 @@ export default function AdminLogin() {
             <Shield className="h-7 w-7" />
           </div>
           <h1 className="font-headline text-2xl font-bold text-soc-text">CogniGuard SOC</h1>
-          <p className="mt-1 text-sm text-soc-muted">Heritage Trust Bank · Fraud Operations</p>
+          <p className="mt-1 text-sm text-soc-muted">Central Bank of India · Fraud Operations</p>
         </div>
 
         {/* Card */}
@@ -99,7 +99,7 @@ export default function AdminLogin() {
         </div>
 
         <p className="mt-6 text-center text-xs text-soc-muted">
-          Restricted access · Heritage Trust Bank Internal Systems
+          Restricted access · Central Bank of India Internal Systems
         </p>
       </div>
     </div>

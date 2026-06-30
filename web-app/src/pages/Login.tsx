@@ -200,7 +200,7 @@ export default function Login() {
             </div>
 
             <div className="mt-4 text-center text-xs text-on-surface-variant">
-              New to Heritage Trust Bank?{" "}
+              New to Central Bank of India?{" "}
               <button
                 type="button"
                 className="font-semibold text-primary hover:underline"

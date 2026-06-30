@@ -28,8 +28,8 @@ export default function DashboardActivity({ scores, onNavigate, onLog }: Dashboa
         {/* Top Header Bar */}
         <header className="flex items-center justify-between px-4 py-3 sticky top-0 bg-white/90 backdrop-blur-md border-b border-slate-200/80 z-20 shadow-sm">
           <div className="flex items-center space-x-2">
-            <span className="text-[#00569c] font-bold text-lg font-mono">HB</span>
-            <span className="font-bold text-sm tracking-tight text-slate-800">Heritage Bank</span>
+            <span className="text-[#00569c] font-bold text-lg font-mono">CBI</span>
+            <span className="font-bold text-sm tracking-tight text-slate-800">Central Bank of India</span>
           </div>
           <div className="flex items-center space-x-1">
             <button className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-800 cursor-pointer">

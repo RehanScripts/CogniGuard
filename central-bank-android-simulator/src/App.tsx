@@ -80,7 +80,7 @@ export default function App() {
         endpoint: '/api/v1/auth/login',
         method: 'POST',
         payload: {
-          username: 'rohan_heritage',
+          username: 'rohan_cbi',
           behavior: {
             source: 'mobile_edge',
             derived_features: {
@@ -111,7 +111,7 @@ export default function App() {
         payload: {
           channel: 'mobile', // strictly hardcoded inside SDK
           amount: 12500,
-          beneficiary_vpa: 'rohan.saxena@okheritage',
+          beneficiary_vpa: 'rohan.saxena@okcbi',
           behavior: {
             source: 'mobile_edge',
             ae_recon_error: Number(metrics.aeReconError.toFixed(2))
@@ -304,7 +304,7 @@ export default function App() {
 
       {/* Footer Branding credits */}
       <footer className="bg-white border-t border-slate-200 px-6 py-4 text-center text-xs text-slate-400 shrink-0 font-sans shadow-sm">
-        Heritage Bank Android Simulator with CogniGuard Active Protection. Powered by TFLite On-Device Autoencoder profiling.
+        Central Bank of India Android Simulator with CogniGuard Active Protection. Powered by TFLite On-Device Autoencoder profiling.
       </footer>
 
     </div>

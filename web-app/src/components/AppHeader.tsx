@@ -33,10 +33,10 @@ export default function AppHeader({ username }: AppHeaderProps) {
           onClick={() => navigate("/dashboard", { state: { username } })}
         >
           <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-primary p-1">
-            <img src={logo} alt="Heritage Trust Bank" className="h-full w-full object-contain" />
+            <img src={logo} alt="Central Bank of India" className="h-full w-full object-contain" />
           </span>
           <div className="flex flex-col text-left leading-tight">
-            <span className="font-headline text-sm font-bold text-primary md:text-base">Heritage Trust Bank</span>
+            <span className="font-headline text-sm font-bold text-primary md:text-base">Central Bank of India</span>
             <span className="hidden text-[10px] tracking-widest text-on-surface-variant md:block">INTERNET BANKING</span>
           </div>
         </button>

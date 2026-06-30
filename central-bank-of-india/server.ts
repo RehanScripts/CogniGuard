@@ -148,7 +148,7 @@ async function startServer() {
   app.get("/api/v1/banking/profile", verifyTokenMiddleware, (req, res) => {
     const profile: ProfileOut = {
       full_name: "Vikram Sen",
-      masked_email: "v******n@heritage.com",
+      masked_email: "v******n@cbi.co.in",
       kyc_level: "KYC Tier-3 Premium Verified"
     };
     res.json(profile);
@@ -168,7 +168,7 @@ async function startServer() {
         masked_account_number: "**** **** **** 4092",
         balance: "₹12,480.50",
         status: "Active",
-        type: "Heritage Platinum Visa",
+        type: "CBI Platinum Visa",
         detail: "Outstanding Dues",
         due_date: "15 June 2024"
       }
@@ -259,7 +259,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Heritage Digital Banking server boot complete on http://0.0.0.0:${PORT}`);
+    console.log(`Central Bank of India Digital Banking server boot complete on http://0.0.0.0:${PORT}`);
   });
 }
 

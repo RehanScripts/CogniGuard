@@ -15,8 +15,8 @@ export default {
           surface: "#F4F6F8",
           text: "#1A2330",
         },
-        // Heritage Trust Bank design system (from the Stitch/AI-Studio export in
-        // heritage-trust-bank/src/index.css) -- flat keys so Stitch's own
+        // Central Bank of India design system (from the Stitch/AI-Studio export in
+        // central-bank-of-india/src/index.css) -- flat keys so Stitch's own
         // className strings (bg-primary, text-on-surface-variant, ...) work verbatim.
         primary: "#00569c",
         "primary-container": "#176fc1",

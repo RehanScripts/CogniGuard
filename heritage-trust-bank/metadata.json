@@ -1,6 +1,0 @@
-{
-  "name": "Heritage Trust Bank",
-  "description": "Secure digital banking portal for Heritage Trust Bank, featuring behavioral profiling, adaptive step-up multi-factor authentication, and transaction monitoring.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

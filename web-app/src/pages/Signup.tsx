@@ -231,7 +231,7 @@ export default function Signup() {
                   onChange={(e) => setConsentChecked(e.target.checked)}
                 />
                 <span>
-                  I consent to Heritage Trust Bank collecting and processing my behavioral data for
+                  I consent to Central Bank of India collecting and processing my behavioral data for
                   security and fraud prevention purposes under the{" "}
                   <strong>Digital Personal Data Protection Act 2023</strong>. I understand I can
                   withdraw consent at any time in Security settings.

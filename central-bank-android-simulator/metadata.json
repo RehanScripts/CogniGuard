@@ -1,0 +1,6 @@
+{
+  "name": "Central Bank of India Android Simulator",
+  "description": "An interactive Android mobile simulator showing Central Bank of India screens with CogniGuard behavioral security integration, real-time SDK contracts, and request/response visualizer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,6 +1,0 @@
-{
-  "name": "Heritage Bank Android Simulator",
-  "description": "An interactive Android mobile simulator showing Heritage Bank screens with CogniGuard behavioral security integration, real-time SDK contracts, and request/response visualizer.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

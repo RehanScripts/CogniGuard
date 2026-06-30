@@ -401,11 +401,11 @@ export default function App() {
                 {/* Brand Header */}
                 <div className="flex flex-col items-center mb-8">
                   <img 
-                    alt="Heritage Trust Bank" 
-                    className="h-16 w-auto mb-4 object-contain transition-transform duration-300 hover:rotate-3" 
+                    alt="Central Bank of India"
+                    className="h-16 w-auto mb-4 object-contain transition-transform duration-300 hover:rotate-3"
                     src="https://lh3.googleusercontent.com/aida-public/AB6AXuAU_FcoRU5GfTy6BULNzDUDucl5kJ9gS6k0_ARnF5xP_nGxRUb0gRvk5rs1mwjNrPYI94_4OPDJXh8YI4fBGBO-c56amlT7mswOCKkZHOhm2NtDH1DsVYS-wDE3wfP_KgMfxOFuleRf31UzmfbRSFtpFKhzW6IMmFW1oTeEkAFGogu3nJOJuhOQXmXlKwd6fADMCiNZ85COJgYXDBaM41Z5WHB3EqZbYj2SKVLzl7rvnCm-AffobpjRSOrYlxMao18VqbN0eqZEfV4"
                   />
-                  <h1 className="font-headline text-2xl font-bold text-primary tracking-tight">Heritage Trust Bank</h1>
+                  <h1 className="font-headline text-2xl font-bold text-primary tracking-tight">Central Bank of India</h1>
                   <p className="text-xs text-on-surface-variant font-medium mt-1 uppercase tracking-widest text-center">Secure Portal Access</p>
                 </div>
 
@@ -548,7 +548,7 @@ export default function App() {
                     <p className="text-on-surface-variant mb-1.5">Don't have an online account?</p>
                     <button 
                       type="button"
-                      onClick={() => alert("Please contact Heritage Bank Relationship Manager to request enrollment credentials.")}
+                      onClick={() => alert("Please contact Central Bank of India Relationship Manager to request enrollment credentials.")}
                       className="inline-flex items-center gap-1 font-semibold text-primary hover:text-primary-container transition-colors group"
                     >
                       <span>New User Registration</span>
@@ -576,7 +576,7 @@ export default function App() {
                 <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm text-xs leading-relaxed text-slate-600">
                   <h3 className="font-headline font-bold text-sm text-slate-900 mb-2">Simulation Sandbox Instructions</h3>
                   <p className="mb-2">
-                    Heritage Bank utilizes adaptive profiling via the <strong>CogniGuard Behavioral Engine</strong>. Toggle the settings in the inspector panel below, then trigger the login form:
+                    Central Bank of India utilizes adaptive profiling via the <strong>CogniGuard Behavioral Engine</strong>. Toggle the settings in the inspector panel below, then trigger the login form:
                   </p>
                   <ul className="list-disc pl-4 space-y-1">
                     <li><strong>Steady Human:</strong> Perfect human keystroke dynamics. Returns direct dashboard entry.</li>
@@ -739,11 +739,11 @@ export default function App() {
               
               <div className="flex items-center gap-3">
                 <img 
-                  alt="HTB" 
+                  alt="CBI"
                   className="h-9 w-auto bg-white p-1 rounded" 
                   src="https://lh3.googleusercontent.com/aida-public/AB6AXuAU_FcoRU5GfTy6BULNzDUDucl5kJ9gS6k0_ARnF5xP_nGxRUb0gRvk5rs1mwjNrPYI94_4OPDJXh8YI4fBGBO-c56amlT7mswOCKkZHOhm2NtDH1DsVYS-wDE3wfP_KgMfxOFuleRf31UzmfbRSFtpFKhzW6IMmFW1oTeEkAFGogu3nJOJuhOQXmXlKwd6fADMCiNZ85COJgYXDBaM41Z5WHB3EqZbYj2SKVLzl7rvnCm-AffobpjRSOrYlxMao18VqbN0eqZEfV4"
                 />
-                <span className="font-headline text-lg md:text-xl font-bold tracking-tight">Heritage Trust Bank</span>
+                <span className="font-headline text-lg md:text-xl font-bold tracking-tight">Central Bank of India</span>
               </div>
 
               {/* Nav links */}
@@ -1088,8 +1088,8 @@ export default function App() {
       <footer className="bg-surface-container-lowest border-t border-outline-variant py-6 mt-auto z-10">
         <div className="flex flex-col md:flex-row justify-between items-center px-6 md:px-10 max-w-7xl mx-auto gap-4 text-xs">
           <div className="flex flex-col items-center md:items-start">
-            <span className="font-bold text-primary">Heritage Trust Bank Ltd.</span>
-            <p className="text-on-surface-variant mt-1">© 2024 Heritage Trust Bank Ltd. Licensed by RBI.</p>
+            <span className="font-bold text-primary">Central Bank of India</span>
+            <p className="text-on-surface-variant mt-1">© 2024 Central Bank of India. Licensed by RBI.</p>
           </div>
           
           <div className="flex flex-wrap justify-center gap-6">

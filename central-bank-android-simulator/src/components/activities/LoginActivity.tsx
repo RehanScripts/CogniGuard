@@ -10,7 +10,7 @@ interface LoginActivityProps {
 }
 
 export default function LoginActivity({ metrics, onLoginSuccess, onLog }: LoginActivityProps) {
-  const [username, setUsername] = useState('rohan_heritage');
+  const [username, setUsername] = useState('rohan_cbi');
   const [password, setPassword] = useState('••••••••');
   const [showPassword, setShowPassword] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
@@ -101,12 +101,12 @@ export default function LoginActivity({ metrics, onLoginSuccess, onLog }: LoginA
           <div className="w-20 h-20 mb-3 bg-white rounded-2xl flex items-center justify-center border border-slate-200 overflow-hidden shadow-md p-2">
             <img 
               src="https://lh3.googleusercontent.com/aida-public/AB6AXuBOl_VIFV1H7XCMFJ1u5TM8sRrMxZ7i6O1lRgQ2ipAreGL82003NzutBOvtDqXLrNmcDXDd7twIOT1eC4Uxlkk67YQSWt6anulLu4Fs0fj4iQLLtWD7dwLnIWsTtJXUEiSR4biLRGEtq3QIKofY9AFeayiHhNB4FaXR-irC4vUdV5GYwyHVDpkh3qaQwxolILxarrOm0-2qxxCml3VNo8ZByQUMmrisxPowTH81tBoiESvWTGyA0KQtzkNDslCd_5Cp4kw4R1cCfow" 
-              alt="Heritage Bank Logo" 
+              alt="Central Bank of India Logo"
               className="w-full h-full object-contain"
               referrerPolicy="no-referrer"
             />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight font-sans">Heritage Bank</h1>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight font-sans">Central Bank of India</h1>
           <p className="text-xs text-slate-500 mt-1 font-sans">Trust across generations</p>
         </div>
 

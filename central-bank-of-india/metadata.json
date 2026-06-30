@@ -1,0 +1,6 @@
+{
+  "name": "Central Bank of India",
+  "description": "Secure digital banking portal for Central Bank of India, featuring behavioral profiling, adaptive step-up multi-factor authentication, and transaction monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

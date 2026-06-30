@@ -4,28 +4,28 @@ export const MOCK_BENEFICIARIES: Beneficiary[] = [
   {
     id: 'b1',
     name: 'Rohan S.',
-    vpa: 'rohan.saxena@okheritage',
+    vpa: 'rohan.saxena@okcbi',
     avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuC2sKMfgG0BS7c-LJP-8cxBenmee6d8uNcUY6IVyf45YNRzEKe5cHhUpzC4JcmFTy7qE02sTXeIaPNLUChCDXAZIrhHutk28Yj_HZ3V_0vGjOTbJte7wPxKZWY35hN8-c5SiJuS-TT6I8yMDYQmlHgfQlG9UjBE82xiVyQfHncR9T8N6xZKLGBVj9jdJ6CAbMjRDneaCSrPG0Se4HT3Fmyn7AnXY6cZCsqO3Osa7MW7PntRy4ms9-BER8hW3zC8klKqDV3EvhosPUM',
     initials: 'RS'
   },
   {
     id: 'b2',
     name: 'Meera K.',
-    vpa: 'meera.krishnan@okheritage',
+    vpa: 'meera.krishnan@okcbi',
     avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB-WxZj-xpiVHoh2fwQ_qYSjbqnMxUufs35xeOg1QilbqgiK79W3LrUXuDDUBaj_rx62mGyqAlHJjoShvCD7TBm0cEs9-7Pj0Lpqg0ygWVW0o4q7HvRa9vklnLu84KgIXyqb23_55f7LMHQkBKPa9ofNDuTlFlJZd50lSm-CU6GFtT_YYCbTC8xbqDA8YuJE6kfpNPjfA6pHMBhgup5DEoUby-LAteJD8t1YygMpGnGHUW0U3wZTKIGd2Q8TUKqW0V0Cdg_cYdCmds',
     initials: 'MK'
   },
   {
     id: 'b3',
     name: 'Amit V.',
-    vpa: 'amit.verma@okheritage',
+    vpa: 'amit.verma@okcbi',
     avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDjYbnVYbpHcj7JoPJetucbHLzrkRG23jv1onlSHVozsHULDWoCRbfT-jkwGATu-nkXYeIN_droflhMb_eQ_2_YFX3neeyQ54quoajkCeDT-4MYYn2A4VaU8qk6hddDsFXxrD82DuvqNdmjwXvk2GAz9EFRmT-TR6X3U8b9Nnrb2T5dr68mdnBHZyeMsu-ZKgX-d4ODAANfT71eWK2RvlyE8emMbiAqe7V2VrHyJoa5gFQyVekMufvApmh_ev4UxaobIAkzzu-BFfo',
     initials: 'AV'
   },
   {
     id: 'b4',
     name: 'Priya L.',
-    vpa: 'priya.lal@okheritage',
+    vpa: 'priya.lal@okcbi',
     avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCz7V-4tyc-69j0fqE8X_UnuE8nrRes45fIKUzR9KhZRMAAWvD_G7qJWXDVAj-7yHK6RqR0cJO9ikSMNxH0cwlXrgpWzNaoRzXx1x9Q3LL_yjzVxapV02RcguT8_nGRXFu3R---0Rj14yUeCf8yZtWzsco_MvyX8sgLaD6yxcr2zlLoerqa41IJo3c4Ung5L8IN2YJIziz7iBZGT7p5W22IYLo2fuU2Qje1bs2fP73o7mAWlg10pifV2Ummi5JYiK17lZkFdh7GP_I',
     initials: 'PL'
   }
