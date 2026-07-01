@@ -109,6 +109,11 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: web-app/package-lock.json
+      # web-app depends on @cogniguard/behavior-sdk via a `file:../behavior-sdk` link
+      # (npm symlinks it, doesn't copy) -- its dist/ is gitignored and must be built
+      # before tsc/vitest can resolve the package.
+      - run: npm ci && npm run build
+        working-directory: behavior-sdk
       - run: npm ci
         working-directory: web-app
       - run: npx tsc --noEmit
