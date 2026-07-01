@@ -12,7 +12,6 @@ import pytest
 
 from app.scoring.device_trust import DeviceTrustResult, _BUDGET_DEFAULTS, compute, hours_since
 
-
 # ── compute() ─────────────────────────────────────────────────────────────────
 
 

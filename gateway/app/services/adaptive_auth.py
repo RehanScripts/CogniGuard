@@ -153,6 +153,7 @@ def accepts_assertion(
         otp_part = otp_or_assertion.split(":", 1)[0]
         if challenge_id is not None and redis is not None:
             from .otp import verify_otp
+
             return verify_otp(challenge_id, otp_part, redis)
         return False
     return bool(otp_or_assertion)

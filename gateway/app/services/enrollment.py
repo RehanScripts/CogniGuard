@@ -64,9 +64,7 @@ def progress(user_id: str, *, required: int, redis: Redis) -> EnrollmentProgress
     if is_enrolled(user_id, redis=redis):
         return EnrollmentProgress(collected=required, required=required, complete=True)
     collected = int(redis.llen(_enroll_buffer_key(user_id)))
-    return EnrollmentProgress(
-        collected=min(collected, required), required=required, complete=False
-    )
+    return EnrollmentProgress(collected=min(collected, required), required=required, complete=False)
 
 
 def record(
@@ -159,7 +157,9 @@ def finalize(user_id: str, *, required: int, redis: Redis) -> bool:
 
     stats = _fit_baseline_stats(vectors)
     probe = identity.IdentityBaseline(
-        stats=stats, distance_calib=calibration.default_calibration(), count=len(vectors),
+        stats=stats,
+        distance_calib=calibration.default_calibration(),
+        count=len(vectors),
         enrolled_at="",
     )
     self_distances = [identity.identity_distance(v, probe) for v in vectors]

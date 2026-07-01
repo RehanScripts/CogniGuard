@@ -39,7 +39,9 @@ def reconstruction_error(
     recon = model.run(None, {input_name: target.reshape(1, SEQ_LEN, N_FEATURES)})[0]
     recon = np.asarray(recon, dtype=np.float32).reshape(SEQ_LEN, N_FEATURES)
 
-    weights = np.ones(SEQ_LEN, dtype=np.float32) if mask is None else np.asarray(mask, dtype=np.float32)
+    weights = (
+        np.ones(SEQ_LEN, dtype=np.float32) if mask is None else np.asarray(mask, dtype=np.float32)
+    )
     total_weight = float(weights.sum())
     if total_weight <= 0:
         return 0.0  # no real rows to compare -- no signal, not an anomaly verdict

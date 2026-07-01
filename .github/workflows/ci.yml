@@ -46,7 +46,10 @@ jobs:
       S3_BUCKET: cogniguard
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
-      JWT_SECRET: ci-test-secret-not-for-production
+      # Must match tests/fixtures/golden_canonical_mobile.json's pinned secret -- that
+      # fixture is shared byte-for-byte across Python/TypeScript/Kotlin signature tests,
+      # so it can't be an arbitrary CI-only value.
+      JWT_SECRET: change_me_dev_only_super_secret
       JWT_ALG: HS256
       JWT_TTL_MINUTES: 30
       MODEL_DIR: /tmp/models

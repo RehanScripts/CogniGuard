@@ -59,6 +59,7 @@ def explain_score(
 
     ctx = _build_groq_context(row, db)
     from ..services import groq_explain
+
     ai_text = groq_explain.generate_shap_explanation(
         [f.model_dump() for f in top_features],
         ctx,
@@ -92,28 +93,44 @@ def _login_trust_features(row: RiskScore) -> list[ShapFeatureOut]:
     if bm is not None:
         # Identity match: low match = main fraud signal (positive = risk-pushing)
         sv = round((50.0 - bm) / 100.0, 3)
-        features.append(ShapFeatureOut(feature="identity_match_%", shap_value=sv, feature_value=round(bm, 1)))
+        features.append(
+            ShapFeatureOut(feature="identity_match_%", shap_value=sv, feature_value=round(bm, 1))
+        )
 
         # Composite trust derived from behavior_match × support
         if ts is not None:
             sv = round((30.0 - ts) / 100.0 * 0.5, 3)
-            features.append(ShapFeatureOut(feature="composite_trust", shap_value=sv, feature_value=round(ts, 1)))
+            features.append(
+                ShapFeatureOut(feature="composite_trust", shap_value=sv, feature_value=round(ts, 1))
+            )
     else:
         # Cold-start / no baseline: trust_score IS the driving composite; show as main factor
         if ts is not None:
             sv = round((75.0 - ts) / 100.0, 3)  # 75 = expected trust for clean low-risk login
-            features.append(ShapFeatureOut(feature="composite_trust", shap_value=sv, feature_value=round(ts, 1)))
+            features.append(
+                ShapFeatureOut(feature="composite_trust", shap_value=sv, feature_value=round(ts, 1))
+            )
         # Show how far final score is from the low-risk base (risk_score itself as driver)
         sv_base = round((final - 10.0) / 100.0 * 0.5, 3)
-        features.append(ShapFeatureOut(feature="session_risk_base", shap_value=max(sv_base, -0.05), feature_value=round(final, 1)))
+        features.append(
+            ShapFeatureOut(
+                feature="session_risk_base",
+                shap_value=max(sv_base, -0.05),
+                feature_value=round(final, 1),
+            )
+        )
 
     # Behavioral anomaly: AE/IF score > 0.5 means unusual behaviour
     sv_bs = round((bs - 0.5) * 0.4, 3)
-    features.append(ShapFeatureOut(feature="behavioral_anomaly", shap_value=sv_bs, feature_value=round(bs, 3)))
+    features.append(
+        ShapFeatureOut(feature="behavioral_anomaly", shap_value=sv_bs, feature_value=round(bs, 3))
+    )
 
     # Device trust: low trust = positive risk contribution
     sv_dev = round((50.0 - ds) / 200.0, 3)
-    features.append(ShapFeatureOut(feature="device_trust", shap_value=sv_dev, feature_value=round(ds, 1)))
+    features.append(
+        ShapFeatureOut(feature="device_trust", shap_value=sv_dev, feature_value=round(ds, 1))
+    )
 
     return sorted(features, key=lambda f: abs(f.shap_value), reverse=True)
 
@@ -161,8 +178,10 @@ def _xgb_shap_features(
 
     if tree_sv is not None:
         paired = sorted(
-            ((FEATURE_COLUMNS[i], tree_sv[i], feature_values.get(FEATURE_COLUMNS[i]))
-             for i in range(len(FEATURE_COLUMNS))),
+            (
+                (FEATURE_COLUMNS[i], tree_sv[i], feature_values.get(FEATURE_COLUMNS[i]))
+                for i in range(len(FEATURE_COLUMNS))
+            ),
             key=lambda x: abs(x[1]),
             reverse=True,
         )[:10]
@@ -222,7 +241,9 @@ def _build_groq_context(row: RiskScore, db: DbSession) -> dict:
         "behavior_score": float(row.behavior_score) if row.behavior_score is not None else None,
         "device_score": float(row.device_score) if row.device_score is not None else None,
         "trust_score": float(row.trust_score) if row.trust_score is not None else None,
-        "behavior_match": float(row.behavior_match_score) if row.behavior_match_score is not None else None,
+        "behavior_match": (
+            float(row.behavior_match_score) if row.behavior_match_score is not None else None
+        ),
         "behavior_score_source": row.behavior_score_source,
     }
 

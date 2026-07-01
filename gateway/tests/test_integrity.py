@@ -18,7 +18,9 @@ def _now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
-def _signed_payload(nonce: str, seq: int, *, ts: str | None = None, device_fp: str = "fp-default") -> BehaviorPayload:
+def _signed_payload(
+    nonce: str, seq: int, *, ts: str | None = None, device_fp: str = "fp-default"
+) -> BehaviorPayload:
     payload = BehaviorPayload(
         channel="web",
         source="web_sdk",

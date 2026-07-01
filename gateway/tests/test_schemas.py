@@ -81,7 +81,11 @@ def test_payment_response_is_decision_with_base_score():
     req = PaymentScoreRequest(amount=50000, beneficiary_vpa="scammer@upi", behavior=_genuine())
     assert req.transfer_type == "UPI"
     resp = PaymentScoreResponse(
-        action="verify", entity_type="transaction", risk_score=37.5, risk_band="medium", base_score=25.0
+        action="verify",
+        entity_type="transaction",
+        risk_score=37.5,
+        risk_band="medium",
+        base_score=25.0,
     )
     assert resp.base_score == 25.0
     assert resp.entity_type == "transaction"

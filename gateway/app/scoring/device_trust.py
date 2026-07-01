@@ -31,7 +31,7 @@ _BUDGET_DEFAULTS: dict[str, float] = {
     "bonus_biometric": 15.0,
     "impossible_travel_kmh": 800.0,
 }
-TRUST_TTL_S = 7 * 24 * 3600     # cache the computed trust for 7 days
+TRUST_TTL_S = 7 * 24 * 3600  # cache the computed trust for 7 days
 
 _DEVICE_TRUST_KEY_PREFIX = "device:"
 
@@ -46,7 +46,7 @@ def _k_device_class(device_id: str) -> str:
 
 @dataclass(frozen=True)
 class DeviceTrustResult:
-    trust: float          # 0..100
+    trust: float  # 0..100
     device_class: DeviceClass
     signals: dict[str, bool | float] = field(default_factory=dict)
 

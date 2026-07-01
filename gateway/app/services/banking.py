@@ -171,7 +171,12 @@ def trust_device(db: DbSession, user: User, device_id: str) -> TrustedDeviceOut:
 
     return TrustedDeviceOut(
         device_id=str(did),
-        label=(" ".join(p for p in (device.os if device else None, device.browser if device else None) if p) or None),
+        label=(
+            " ".join(
+                p for p in (device.os if device else None, device.browser if device else None) if p
+            )
+            or None
+        ),
         is_trusted=True,
         last_used_at=link.last_used_at,
     )

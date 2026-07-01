@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 import uuid
 
 from sqlalchemy import delete, select
@@ -51,14 +50,10 @@ def _redis_keys_for_user(user_id: str, session_ids: list[str]) -> list[str]:
 
 def reset_user(username: str) -> None:
     with SessionLocal() as db:
-        user = db.scalar(
-            select(User).where(User.customer_ref == username)
-        )
+        user = db.scalar(select(User).where(User.customer_ref == username))
         if user is None:
             # Try case-insensitive search
-            user = db.scalar(
-                select(User).where(User.customer_ref.ilike(username))
-            )
+            user = db.scalar(select(User).where(User.customer_ref.ilike(username)))
         if user is None:
             log.warning("No user found with username %r — nothing to reset.", username)
             return
@@ -96,28 +91,20 @@ def reset_user(username: str) -> None:
             log.info("  Deleted decisions: %d", n_decisions)
 
         # 2. risk_scores: user_id is SET NULL on user delete, so delete explicitly.
-        n_scores = db.execute(
-            delete(RiskScore).where(RiskScore.user_id == uid)
-        ).rowcount
+        n_scores = db.execute(delete(RiskScore).where(RiskScore.user_id == uid)).rowcount
         log.info("  Deleted risk_scores: %d", n_scores)
 
         # 3. cases: user_id is SET NULL on user delete, so delete explicitly.
-        n_cases = db.execute(
-            delete(Case).where(Case.user_id == uid)
-        ).rowcount
+        n_cases = db.execute(delete(Case).where(Case.user_id == uid)).rowcount
         log.info("  Deleted cases: %d", n_cases)
 
         # 4. audit_logs: actor_id is a string (not FK), keyed by user_id string.
-        n_audit = db.execute(
-            delete(AuditLog).where(AuditLog.actor_id == uid_str)
-        ).rowcount
+        n_audit = db.execute(delete(AuditLog).where(AuditLog.actor_id == uid_str)).rowcount
         log.info("  Deleted audit_logs: %d", n_audit)
 
         # 5. login_events: session_id CASCADE from sessions, but user_id is SET NULL.
         #    Delete explicitly now before the cascade happens so we get them cleanly.
-        n_events = db.execute(
-            delete(LoginEvent).where(LoginEvent.user_id == uid)
-        ).rowcount
+        n_events = db.execute(delete(LoginEvent).where(LoginEvent.user_id == uid)).rowcount
         log.info("  Deleted login_events: %d", n_events)
 
         # 6. Delete the user row — CASCADE handles:
@@ -125,8 +112,10 @@ def reset_user(username: str) -> None:
         #    transactions, user_beneficiaries, auth_challenges (via sessions)
         db.delete(user)
         db.commit()
-        log.info("  Deleted user row (+ CASCADE: accounts, sessions, behavior_samples, "
-                 "user_devices, transactions, user_beneficiaries, auth_challenges)")
+        log.info(
+            "  Deleted user row (+ CASCADE: accounts, sessions, behavior_samples, "
+            "user_devices, transactions, user_beneficiaries, auth_challenges)"
+        )
 
     # --- Redis cleanup ---
     redis_keys = _redis_keys_for_user(uid_str, session_ids)

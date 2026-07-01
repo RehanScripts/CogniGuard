@@ -76,7 +76,9 @@ def test_calibrate_if_polarity_matches_isolation_forest_behavior_score():
 def test_load_calibration_per_user_takes_priority_over_population():
     redis = _FakeRedis(
         {
-            "behavior:u1:ae_calib": json.dumps({"scale": 3.0, "threshold": 1.0, "temperature": 2.0}),
+            "behavior:u1:ae_calib": json.dumps(
+                {"scale": 3.0, "threshold": 1.0, "temperature": 2.0}
+            ),
             POPULATION_CALIBRATION_KEY: json.dumps({"scale": 9.0, "threshold": 9.0}),
         }
     )

@@ -19,7 +19,9 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(Text)  # tokenized at rest in prod
     phone: Mapped[str | None] = mapped_column(Text)  # tokenized at rest in prod
     password_hash: Mapped[str | None] = mapped_column(Text)  # Argon2id
-    account_status: Mapped[str] = mapped_column(String(32), default="active")  # active|frozen|closed|pending_email_verify
+    account_status: Mapped[str] = mapped_column(
+        String(32), default="active"
+    )  # active|frozen|closed|pending_email_verify
     kyc_level: Mapped[str | None] = mapped_column(String(16))
     baseline_risk_tier: Mapped[str | None] = mapped_column(String(8))  # low|medium|high
 

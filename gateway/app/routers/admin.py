@@ -194,8 +194,7 @@ def get_auth_timeline(
         challenge_type: str | None = None
         if ev.event_type == "step_up" and ev.session_id:
             challenge_row = db.scalar(
-                select(AuthChallenge)
-                .where(AuthChallenge.challenge_id == ev.session_id)
+                select(AuthChallenge).where(AuthChallenge.challenge_id == ev.session_id)
             )
             if challenge_row:
                 challenge_type = challenge_row.challenge_type
@@ -219,9 +218,7 @@ def get_auth_timeline(
     response_model=DeviceIntelOut,
     dependencies=[_any_role],
 )
-def get_device_intel(
-    device_id: str, db: DbSession = Depends(deps.get_db)
-) -> DeviceIntelOut:
+def get_device_intel(device_id: str, db: DbSession = Depends(deps.get_db)) -> DeviceIntelOut:
     """D3: device intelligence — trust class, geo trend, linked users."""
     try:
         did = uuid.UUID(device_id)
@@ -232,11 +229,9 @@ def get_device_intel(
     if device is None:
         raise HTTPException(status_code=404, detail="device not found")
 
-    user_links = db.scalars(
-        select(UserDevice).where(UserDevice.device_id == did)
-    ).all()
+    user_links = db.scalars(select(UserDevice).where(UserDevice.device_id == did)).all()
     trust_score = float(user_links[0].trust_score) if user_links else None
-    is_trusted = any(l.is_trusted for l in user_links)
+    is_trusted = any(link.is_trusted for link in user_links)
 
     trust_class = "unknown"
     if trust_score is not None:
@@ -266,13 +261,18 @@ def get_device_intel(
         for s in geo_rows
     ]
 
-    event_count = db.scalar(
-        select(func.count()).select_from(RiskScore).where(
-            RiskScore.entity_id.in_(
-                select(SessionModel.session_id).where(SessionModel.device_id == did)
+    event_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(RiskScore)
+            .where(
+                RiskScore.entity_id.in_(
+                    select(SessionModel.session_id).where(SessionModel.device_id == did)
+                )
             )
         )
-    ) or 0
+        or 0
+    )
 
     return DeviceIntelOut(
         device_id=str(did),
@@ -367,7 +367,7 @@ def _case_out(case: Case, db: DbSession) -> CaseOut:
             reason_codes = txn.decision_reason.get("reason_codes")
             amplifiers = txn.decision_reason.get("amplifiers")
 
-    updated_at = (case.resolved_at or case.created_at)
+    updated_at = case.resolved_at or case.created_at
     return CaseOut(
         case_id=str(case.case_id),
         user_id=str(case.user_id) if case.user_id else None,
@@ -491,10 +491,21 @@ def get_drift(
 
 
 _RESET_TABLES = [
-    "users", "accounts", "sessions", "login_events", "behavior_samples",
-    "beneficiaries", "user_beneficiaries", "transactions",
-    "risk_scores", "decisions", "auth_challenges",
-    "cases", "audit_logs", "devices", "user_devices",
+    "users",
+    "accounts",
+    "sessions",
+    "login_events",
+    "behavior_samples",
+    "beneficiaries",
+    "user_beneficiaries",
+    "transactions",
+    "risk_scores",
+    "decisions",
+    "auth_challenges",
+    "cases",
+    "audit_logs",
+    "devices",
+    "user_devices",
 ]
 
 

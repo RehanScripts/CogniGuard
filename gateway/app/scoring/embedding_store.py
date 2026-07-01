@@ -33,9 +33,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 EMBEDDING_DIM = 16
-_ALPHA = 0.15          # EMA update weight for centroid (higher = more responsive)
-_MIN_SESSIONS = 3      # require this many sessions before centroid is considered warm
-_CENTROID_TTL_S = 90 * 24 * 3600   # 90-day TTL — same as risk baseline
+_ALPHA = 0.15  # EMA update weight for centroid (higher = more responsive)
+_MIN_SESSIONS = 3  # require this many sessions before centroid is considered warm
+_CENTROID_TTL_S = 90 * 24 * 3600  # 90-day TTL — same as risk baseline
 
 
 def _k_centroid(user_id: str) -> str:
@@ -79,9 +79,12 @@ def _load_encoder_session(artifact_uri: str):
     if artifact_uri.startswith("s3://") or artifact_uri.startswith("models/"):
         from ..s3_client import get_s3
         from ..config import settings
-        import tempfile, os
 
-        s3_key = artifact_uri.lstrip("s3://").split("/", 1)[-1] if artifact_uri.startswith("s3://") else artifact_uri
+        s3_key = (
+            artifact_uri.lstrip("s3://").split("/", 1)[-1]
+            if artifact_uri.startswith("s3://")
+            else artifact_uri
+        )
         try:
             obj = get_s3().get_object(Bucket=settings.s3_bucket, Key=s3_key)
             onnx_bytes = obj["Body"].read()
@@ -160,10 +163,7 @@ def update_and_score(
 
     # EMA update: new_centroid = alpha * live + (1 - alpha) * old
     if session_count > 1:
-        centroid = [
-            _ALPHA * e + (1.0 - _ALPHA) * c
-            for e, c in zip(embedding, centroid)
-        ]
+        centroid = [_ALPHA * e + (1.0 - _ALPHA) * c for e, c in zip(embedding, centroid)]
     session_count += 1
 
     redis.set(

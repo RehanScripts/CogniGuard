@@ -267,12 +267,13 @@ def score(
     # provides a complementary global-structure similarity beyond per-feature z distances.
     if behavior_match is not None and bundle.embedding_sim is not None:
         embed_weight = trust_weights.get("embedding_sim_weight", 0.25)
-        behavior_match = (1.0 - embed_weight) * behavior_match + embed_weight * (bundle.embedding_sim * 100.0)
+        behavior_match = (1.0 - embed_weight) * behavior_match + embed_weight * (
+            bundle.embedding_sim * 100.0
+        )
     # Substitute behavior_match as genuineness for enrolled AE cold-start (see comment
     # above where _use_bm_as_genuineness is set).
     effective_genuineness = (
-        behavior_match if (_use_bm_as_genuineness and behavior_match is not None)
-        else genuineness
+        behavior_match if (_use_bm_as_genuineness and behavior_match is not None) else genuineness
     )
     trust = identity.compute_trust(
         behavior_match=behavior_match,
@@ -298,36 +299,40 @@ def score(
     #                           4+ wrong → floor = very_high_min+1 (→ very_high)
     #   payment            → max(identity_risk, txn risk after amplifiers). AE/XGBoost stay
     #                         active for APP-fraud/coercion; identity mismatch still escalates.
+    #
+    # NOTE: the identity gate stays active even at n=0 -- a correct password on the first
+    # try tells us nothing about whether the *typing* behind it was the enrolled user's.
+    # Bypassing the gate there would let a stolen-credential login with mismatched
+    # behavior score "low" and sail through allow, which is exactly the account-takeover
+    # scenario per-user identity verification exists to catch (docs/architecture.md
+    # invariant: continuous re-scoring augments, but does not replace, the login check).
     _failure_reason: ReasonCode | None = None
     if behavior_match is not None:
         if txn_context is None:
             n = bundle.login_failure_count
-            if n == 0:
-                # Clean enrolled login — XGBoost/IF path (low for genuine user)
-                final_score = txn_final
-            else:
+            identity_risk = trust.identity_risk
+            if n > 0:
                 t = policy["thresholds"]
-                lo  = t.get("low_max", 30)
+                lo = t.get("low_max", 30)
                 med = t.get("medium_max", 60)
-                vh  = t.get("very_high_min", 85)
+                vh = t.get("very_high_min", 85)
                 # Both floor AND ceiling per failure count so the band is guaranteed
                 # regardless of what the actual identity_risk is on a given day:
                 #   n=1 → [lo+5 .. med-1]  = [35..59]  → always medium
                 #   n=2 → [med+2 .. vh-1]  = [62..84]  → always high
                 #   n=3 → [med+5 .. vh-1]  = [65..84]  → always high
                 #   n=4+ → [vh+1 .. 100]   = [86..100] → always very_high
-                _floor = {1: lo + 5,  2: med + 2, 3: med + 5}.get(n, vh + 1)
-                _ceil  = {1: med - 1, 2: vh - 1,  3: vh - 1 }.get(n, 100.0)
-                _amp   = {1: 1.0,     2: 1.4,     3: 1.5    }.get(n, 2.2)
+                _floor = {1: lo + 5, 2: med + 2, 3: med + 5}.get(n, vh + 1)
+                _ceil = {1: med - 1, 2: vh - 1, 3: vh - 1}.get(n, 100.0)
+                _amp = {1: 1.0, 2: 1.4, 3: 1.5}.get(n, 2.2)
                 identity_risk = _clamp(
-                    max(round(trust.identity_risk * _amp, 1), float(_floor)),
-                    0.0, float(_ceil)
+                    max(round(trust.identity_risk * _amp, 1), float(_floor)), 0.0, float(_ceil)
                 )
                 _failure_reason = ReasonCode(
                     code="LOGIN_FAILURE_HISTORY",
                     signal=f"{n} failed attempt(s) before this login",
                 )
-                final_score = identity_risk
+            final_score = identity_risk
         else:
             # Payment: identity gate always active; failures add extra pressure
             identity_risk = trust.identity_risk

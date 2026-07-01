@@ -28,7 +28,7 @@ function passwordStrength(pw: string): { label: string; color: string; width: st
     { label: "Good", color: "bg-yellow-400", width: "w-3/4" },
     { label: "Strong", color: "bg-emerald-500", width: "w-full" },
   ];
-  return levels[Math.min(score, 3)];
+  return levels[Math.min(score, levels.length - 1)]!;
 }
 
 export default function Signup() {

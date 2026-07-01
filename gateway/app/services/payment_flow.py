@@ -190,7 +190,9 @@ def score_payment(
         session_id=str(session.session_id),
     )
     bundle = feature_reader.read_bundle(
-        str(user.user_id), ctx, redis=redis,
+        str(user.user_id),
+        ctx,
+        redis=redis,
         device_trust_budgets=policy.get("device_trust"),
     )
     is_new_payee = bundle.txn.is_new_payee

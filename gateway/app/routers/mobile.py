@@ -8,7 +8,6 @@ behind a session token.
 from __future__ import annotations
 
 import base64
-import hashlib
 import os
 import uuid
 
@@ -22,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from .. import deps
-from ..models.device import Device, UserDevice
+from ..models.device import UserDevice
 from ..models.user import User
 from ..models.session import Session as SessionModel
 from ..schemas.mobile import AECalibrationOut, AEModelDistribution
@@ -53,6 +52,7 @@ def get_ae_calib(user_id: str, redis: Redis = Depends(deps.get_redis)) -> AECali
 
 
 # ── KeyStore biometric binding (Phase C3) ──────────────────────────────────────
+
 
 class EnrollChallengeOut(BaseModel):
     enrollment_nonce: str
@@ -112,7 +112,9 @@ def bind_biometric(
     if stored_nonce_raw is None:
         raise HTTPException(status_code=400, detail="enrollment nonce expired or not issued")
 
-    stored_nonce = stored_nonce_raw.decode() if isinstance(stored_nonce_raw, bytes) else stored_nonce_raw
+    stored_nonce = (
+        stored_nonce_raw.decode() if isinstance(stored_nonce_raw, bytes) else stored_nonce_raw
+    )
     if stored_nonce != req.enrollment_nonce:
         raise HTTPException(status_code=400, detail="enrollment nonce mismatch")
 

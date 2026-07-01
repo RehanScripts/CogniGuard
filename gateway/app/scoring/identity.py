@@ -36,12 +36,13 @@ EPS = 1e-9
 MAD_TO_STD = 1.4826  # MAD -> std consistency constant for a normal distribution
 
 # Per-dimension z cap: prevents one noisy sensor (e.g. accelerometer variance that
-# naturally changes with phone orientation) from saturating the RMS identity distance
-# and collapsing behavior_match to ~0% for a legitimate enrolled user.  A value of 3
-# keeps the maximum single-dim contribution to 3σ — still a clear anomaly signal for an
-# impostor who differs on that feature, but no longer a kill-switch when all other dims
-# are well within baseline.
-_Z_CAP = 3.0
+# naturally changes with phone orientation) from exploding to a literal-infinity
+# distance and collapsing behavior_match to ~0% for a legitimate enrolled user. Capped
+# rather than uncapped, but high enough that a single wildly-anomalous dimension (an
+# impostor who differs on only that feature) still dominates the RMS over all 9 dims —
+# a cap of 3σ diluted the RMS so much a single-dim mismatch could never escalate past
+# a "low" match (sqrt(9²/9) == 3 total, regardless of how far off that one dim was).
+_Z_CAP = 15.0
 
 
 def identity_baseline_key(user_id: str) -> str:

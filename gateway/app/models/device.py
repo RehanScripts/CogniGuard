@@ -2,7 +2,6 @@ import datetime as dt
 import uuid
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import TEXT as PG_TEXT
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 

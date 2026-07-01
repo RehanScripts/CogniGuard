@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/icon.png" alt="CogniGuard Logo" width="96" />
+  <img src="docs/assets/icon.png" alt="CogniGuard Logo" width="440" />
 </p>
 
 <h1 align="center">CogniGuard</h1>
@@ -22,6 +22,7 @@
 <p align="center">
   <a href="#-problem">Problem</a> ·
   <a href="#-solution">Solution</a> ·
+  <a href="#user-flow">User Flow</a> ·
   <a href="#-core-capabilities">Capabilities</a> ·
   <a href="#%EF%B8%8F-architecture">Architecture</a> ·
   <a href="#-quick-start">Quick Start</a> ·
@@ -88,6 +89,16 @@ The single output is a calibrated **Risk Score (0–100)** that feeds a policy-d
 | Explainability | Black box | SHAP feature attribution + LLM case narratives for analysts |
 | Telemetry integrity | None | HMAC-SHA256 + single-use nonce — replay and RAT attacks rejected |
 | Cold-start handling | Often blocks new users | Isolation Forest + rules; always biases to `verify`, never `block` |
+
+---
+
+## User Flow
+
+<p align="center">
+  <img src="docs/assets/user-flow.png" alt="CogniGuard user login and transaction journey" width="720" />
+</p>
+
+Login risk is scored from behavioral biometrics alone and routes to zero-friction `allow`, a light or strong step-up `verify`, or an outright `block` + SOC alert. The session keeps re-scoring afterward, so a hijack that surfaces only after login still forces re-authentication. At transaction time, the same risk stack layers on Dynamic Risk Amplifiers (new payee, high value, odd hour, coercion signals) — so a transfer can still be held for a coercion-confirm / cooling-off / out-of-band check even when the login itself looked genuine.
 
 ---
 

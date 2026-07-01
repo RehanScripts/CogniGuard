@@ -36,9 +36,7 @@ class InvestigationProvider(Protocol):
 class DeterministicStubProvider:
     """Builds a structured investigation summary from existing DB data without any LLM."""
 
-    async def investigate(
-        self, case_id: str, case: Case, db: DbSession
-    ) -> InvestigationResultOut:
+    async def investigate(self, case_id: str, case: Case, db: DbSession) -> InvestigationResultOut:
         risk_factors: list[str] = []
         summary_parts: list[str] = []
 
@@ -97,7 +95,8 @@ class DeterministicStubProvider:
                 reason_codes = decision_row.reason_codes or []
                 if reason_codes:
                     codes = ", ".join(
-                        r.get("code", str(r)) for r in (reason_codes if isinstance(reason_codes, list) else [])
+                        r.get("code", str(r))
+                        for r in (reason_codes if isinstance(reason_codes, list) else [])
                     )
                     risk_factors.append(f"Decision reason codes: {codes}")
 
@@ -116,9 +115,7 @@ class DeterministicStubProvider:
 class ClaudeProvider:
     """Calls Anthropic Messages API.  Activated by LLM_PROVIDER=claude + ANTHROPIC_API_KEY."""
 
-    async def investigate(
-        self, case_id: str, case: Case, db: DbSession
-    ) -> InvestigationResultOut:
+    async def investigate(self, case_id: str, case: Case, db: DbSession) -> InvestigationResultOut:
         try:
             import anthropic  # noqa: PLC0415
         except ImportError as exc:
@@ -168,7 +165,9 @@ def _fmt(dt_val: dt.datetime | None) -> str:
 
 def _recommend(action: str | None, risk_factors: list[str]) -> str:
     if not risk_factors:
-        return "No significant risk factors detected. Consider closing as false positive after review."
+        return (
+            "No significant risk factors detected. Consider closing as false positive after review."
+        )
     if action == "block":
         return (
             "Transaction was blocked due to high risk. Recommend confirming with the customer "

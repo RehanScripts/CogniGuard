@@ -46,7 +46,9 @@ def test_delay_escalation(db, ip_device):
     ip, device_fp = ip_device
     for _ in range(2):
         hardening.register_failure(db, ip, device_fp, None, POLICY, redis=redis_client)
-    result = hardening.register_failure(db, ip, device_fp, None, POLICY, redis=redis_client)  # 3rd failure
+    result = hardening.register_failure(
+        db, ip, device_fp, None, POLICY, redis=redis_client
+    )  # 3rd failure
     assert result is not None
     assert result.action == "DELAY"
 
@@ -55,7 +57,9 @@ def test_captcha_escalation(db, ip_device):
     ip, device_fp = ip_device
     for _ in range(3):
         hardening.register_failure(db, ip, device_fp, None, POLICY, redis=redis_client)
-    result = hardening.register_failure(db, ip, device_fp, None, POLICY, redis=redis_client)  # 4th failure
+    result = hardening.register_failure(
+        db, ip, device_fp, None, POLICY, redis=redis_client
+    )  # 4th failure
     assert result.action == "CAPTCHA"
 
 
@@ -63,7 +67,9 @@ def test_lockout_after_threshold_locks_ip_and_device_never_account(db, ip_device
     ip, device_fp = ip_device
     for _ in range(4):
         hardening.register_failure(db, ip, device_fp, None, POLICY, redis=redis_client)
-    result = hardening.register_failure(db, ip, device_fp, None, POLICY, redis=redis_client)  # 5th failure
+    result = hardening.register_failure(
+        db, ip, device_fp, None, POLICY, redis=redis_client
+    )  # 5th failure
     assert result.action == "LOCKOUT"
 
     lock = hardening.is_locked(ip, device_fp, redis=redis_client)

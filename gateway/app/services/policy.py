@@ -87,9 +87,9 @@ DEFAULT_POLICY: dict[str, Any] = {
     # without redeploying; device_trust.compute() falls back to these defaults
     # when the key is absent (backward compat, degraded-Redis fallback).
     "device_trust": {
-        "rooted_ceiling": 10.0,       # hard cap — rooted/emulator can never look clean
-        "base_new": 35.0,             # first time we see this device fingerprint
-        "base_known": 75.0,           # device fingerprint seen before for this user
+        "rooted_ceiling": 10.0,  # hard cap — rooted/emulator can never look clean
+        "base_new": 35.0,  # first time we see this device fingerprint
+        "base_known": 75.0,  # device fingerprint seen before for this user
         "penalty_impossible_travel": 40.0,
         "bonus_biometric": 15.0,
         "impossible_travel_kmh": 800.0,

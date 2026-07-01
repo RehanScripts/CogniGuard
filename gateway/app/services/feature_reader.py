@@ -130,7 +130,9 @@ def _behavior_from_payload(behavior: BehaviorPayload) -> BehaviorFeatures:
         for prev, cur in zip(moves, moves[1:]):
             dt_ms = cur.get("t", 0) - prev.get("t", 0)
             if dt_ms > 0:
-                dist = math.hypot(cur.get("x", 0) - prev.get("x", 0), cur.get("y", 0) - prev.get("y", 0))
+                dist = math.hypot(
+                    cur.get("x", 0) - prev.get("x", 0), cur.get("y", 0) - prev.get("y", 0)
+                )
                 speeds.append(dist / dt_ms)
         if speeds:
             mouse_velocity_mean = sum(speeds) / len(speeds)
@@ -252,7 +254,9 @@ def read_bundle(
         geo_change = not redis.sismember(_k_known_geos(user_id), current_geohash)
         last_lat, last_lon = profile.get("last_geo_lat"), profile.get("last_geo_lon")
         if last_lat is not None and last_lon is not None:
-            geo_distance_km = haversine(float(last_lat), float(last_lon), payload.geo_lat, payload.geo_lon)
+            geo_distance_km = haversine(
+                float(last_lat), float(last_lon), payload.geo_lat, payload.geo_lon
+            )
 
     # Device trust: prefer the Redis-cached value written by a prior request.
     # On first encounter (cache miss) compute from signals already in hand and write
@@ -266,9 +270,7 @@ def read_bundle(
             is_emulator=payload.behavior.device.is_emulator,
             is_new_device=is_new_device,
             geo_distance_km=geo_distance_km,
-            hours_since_last_login=_device_trust_engine.hours_since(
-                profile.get("last_login_ts")
-            ),
+            hours_since_last_login=_device_trust_engine.hours_since(profile.get("last_login_ts")),
             budgets=device_trust_budgets,
         )
         device_trust = _dt_result.trust
@@ -378,20 +380,42 @@ def snapshot_features(bundle: FeatureBundle, s3_client: object, session_id: str)
         date_str = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
         key = f"features/{date_str}/{session_id}.json"
 
-        payload = json.dumps({
-            "session_id": session_id,
-            "user_id": bundle.user_id,
-            "snapshotted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-            "behavior": bundle.behavior.model_dump() if hasattr(bundle.behavior, "model_dump") else vars(bundle.behavior),
-            "device": bundle.device.model_dump() if hasattr(bundle.device, "model_dump") else vars(bundle.device),
-            "network": bundle.network.model_dump() if hasattr(bundle.network, "model_dump") else vars(bundle.network),
-            "txn": bundle.txn.model_dump() if hasattr(bundle.txn, "model_dump") else vars(bundle.txn),
-            "context": bundle.context.model_dump() if hasattr(bundle.context, "model_dump") else vars(bundle.context),
-            "cold_start": bundle.cold_start,
-            "enrolled": bundle.enrolled,
-            "ae_recon_error": bundle.ae_recon_error,
-            "ae_cold_start": bundle.ae_cold_start,
-        })
+        payload = json.dumps(
+            {
+                "session_id": session_id,
+                "user_id": bundle.user_id,
+                "snapshotted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "behavior": (
+                    bundle.behavior.model_dump()
+                    if hasattr(bundle.behavior, "model_dump")
+                    else vars(bundle.behavior)
+                ),
+                "device": (
+                    bundle.device.model_dump()
+                    if hasattr(bundle.device, "model_dump")
+                    else vars(bundle.device)
+                ),
+                "network": (
+                    bundle.network.model_dump()
+                    if hasattr(bundle.network, "model_dump")
+                    else vars(bundle.network)
+                ),
+                "txn": (
+                    bundle.txn.model_dump()
+                    if hasattr(bundle.txn, "model_dump")
+                    else vars(bundle.txn)
+                ),
+                "context": (
+                    bundle.context.model_dump()
+                    if hasattr(bundle.context, "model_dump")
+                    else vars(bundle.context)
+                ),
+                "cold_start": bundle.cold_start,
+                "enrolled": bundle.enrolled,
+                "ae_recon_error": bundle.ae_recon_error,
+                "ae_cold_start": bundle.ae_cold_start,
+            }
+        )
         s3.put_object(
             Bucket=settings.s3_bucket,
             Key=key,

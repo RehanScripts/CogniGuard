@@ -60,7 +60,7 @@ def _write_session_risk(
 
 
 _RISK_BASELINE_TTL_S = 90 * 24 * 3600  # 90 days
-_RISK_BASELINE_ALPHA = 0.1              # EMA smoothing factor
+_RISK_BASELINE_ALPHA = 0.1  # EMA smoothing factor
 
 
 def _k_risk_baseline(uid: str) -> str:
@@ -85,8 +85,8 @@ def _update_risk_baseline(redis: Redis, uid: str, score: float) -> None:
 
     alpha = _RISK_BASELINE_ALPHA
     new_avg = alpha * score + (1 - alpha) * avg
-    new_var = (1 - alpha) * (std ** 2 + alpha * (score - avg) ** 2)
-    new_std = max(new_var ** 0.5, 0.0)
+    new_var = (1 - alpha) * (std**2 + alpha * (score - avg) ** 2)
+    new_std = max(new_var**0.5, 0.0)
     new_count = count + 1
 
     redis.set(
@@ -130,7 +130,9 @@ def ingest(
         session_id=str(session.session_id),
     )
     bundle = feature_reader.read_bundle(
-        str(user.user_id), ctx, redis=redis,
+        str(user.user_id),
+        ctx,
+        redis=redis,
         device_trust_budgets=policy.get("device_trust"),
     )
     behavior_features = bundle.behavior

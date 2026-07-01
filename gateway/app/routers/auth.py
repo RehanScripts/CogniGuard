@@ -67,7 +67,11 @@ def register(
     except ValueError as exc:
         return JSONResponse({"detail": str(exc)}, status_code=409)
     return JSONResponse(
-        {"user_id": str(user.user_id), "challenge_id": challenge_id, "status": "pending_email_verify"},
+        {
+            "user_id": str(user.user_id),
+            "challenge_id": challenge_id,
+            "status": "pending_email_verify",
+        },
         status_code=201,
     )
 
@@ -78,7 +82,9 @@ def verify_registration_email(
     db: DbSession = Depends(deps.get_db),
     redis: Redis = Depends(deps.get_redis),
 ) -> JSONResponse:
-    status_code, body = auth_flow.verify_registration_email(db, redis, req.challenge_id, req.otp_code)
+    status_code, body = auth_flow.verify_registration_email(
+        db, redis, req.challenge_id, req.otp_code
+    )
     return JSONResponse(body, status_code=status_code)
 
 

@@ -14,6 +14,7 @@ Usage (from the project root, with Docker stack running):
 
 Requires only stdlib — no extra packages.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -45,6 +46,7 @@ SCAMMER_VPA = "scammer@upi"
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 
+
 def _http(method: str, path: str, body: dict | None = None, token: str | None = None) -> dict:
     data = json.dumps(body).encode() if body else None
     headers: dict[str, str] = {}
@@ -70,6 +72,7 @@ def _get_nonce() -> str:
 
 
 # ── HMAC / signing helpers (mirrors integrity.py exactly) ────────────────────
+
 
 def _canonical_metrics(
     channel: str,
@@ -156,25 +159,32 @@ def _behavior(
 
 # ── Scenario helpers ──────────────────────────────────────────────────────────
 
+
 def _genuine_login(seq: int = 1) -> dict:
     """Login as `genuine` with known device + low AE error (genuine behavior)."""
     nonce = _get_nonce()
-    return _http("POST", "/auth/login", {
-        "username": GENUINE_USER,
-        "password": GENUINE_PASS,
-        "behavior": _behavior(
-            nonce, seq, GENUINE_FP,
-            ae_err=0.04,        # very low reconstruction error → genuine
-            derived={
-                "typing_speed": 4.5,
-                "key_latency_avg": 110.0,
-                "typing_rhythm_std": 12.0,
-                "hold_time_avg": 80.0,
-                "swipe_velocity_norm": 0.6,
-                "mouse_velocity_mean": 0.8,
-            },
-        ),
-    })
+    return _http(
+        "POST",
+        "/auth/login",
+        {
+            "username": GENUINE_USER,
+            "password": GENUINE_PASS,
+            "behavior": _behavior(
+                nonce,
+                seq,
+                GENUINE_FP,
+                ae_err=0.04,  # very low reconstruction error → genuine
+                derived={
+                    "typing_speed": 4.5,
+                    "key_latency_avg": 110.0,
+                    "typing_rhythm_std": 12.0,
+                    "hold_time_avg": 80.0,
+                    "swipe_velocity_norm": 0.6,
+                    "mouse_velocity_mean": 0.8,
+                },
+            ),
+        },
+    )
 
 
 def _admin_token() -> str:
@@ -188,20 +198,30 @@ def _admin_token() -> str:
 def _banner(title: str) -> None:
     print(f"\n{'='*60}")
     print(f"  {title}")
-    print("="*60)
+    print("=" * 60)
 
 
 def _show(label: str, r: dict) -> None:
     b = r["body"]
     print(f"\n  HTTP {r['status']}")
-    for key in ("action", "risk_score", "risk_band", "reason_codes", "amplifiers",
-                "integrity", "degraded_mode", "behavior_score_source", "model_version"):
+    for key in (
+        "action",
+        "risk_score",
+        "risk_band",
+        "reason_codes",
+        "amplifiers",
+        "integrity",
+        "degraded_mode",
+        "behavior_score_source",
+        "model_version",
+    ):
         if key in b:
             print(f"  {key}: {b[key]}")
     print(f"\n  Raw body → {json.dumps(b, indent=2)[:800]}")
 
 
 # ── Scenarios ─────────────────────────────────────────────────────────────────
+
 
 def scenario_ato() -> None:
     """Account Takeover: impostor uses stolen creds from unrecognised device."""
@@ -218,22 +238,28 @@ def scenario_ato() -> None:
     → behavior_score_source: ae  (or fallback to if / degraded_mode if no model)
 """)
     nonce = _get_nonce()
-    r = _http("POST", "/auth/login", {
-        "username": GENUINE_USER,
-        "password": GENUINE_PASS,
-        "behavior": _behavior(
-            nonce, seq=1, fingerprint=IMPOSTOR_FP,
-            ae_err=0.92,        # high reconstruction error → anomalous behaviour
-            derived={
-                "typing_speed": 9.1,        # 2× faster than genuine baseline (4.5)
-                "key_latency_avg": 44.0,    # erratic — much faster than baseline (110ms)
-                "typing_rhythm_std": 2.1,   # suspiciously machine-like (baseline 12.0)
-                "hold_time_avg": 38.0,      # half the genuine 80ms
-                "swipe_velocity_norm": 1.4, # aggressive swipes (baseline 0.6)
-                "mouse_velocity_mean": 2.2, # baseline 0.8
-            },
-        ),
-    })
+    r = _http(
+        "POST",
+        "/auth/login",
+        {
+            "username": GENUINE_USER,
+            "password": GENUINE_PASS,
+            "behavior": _behavior(
+                nonce,
+                seq=1,
+                fingerprint=IMPOSTOR_FP,
+                ae_err=0.92,  # high reconstruction error → anomalous behaviour
+                derived={
+                    "typing_speed": 9.1,  # 2× faster than genuine baseline (4.5)
+                    "key_latency_avg": 44.0,  # erratic — much faster than baseline (110ms)
+                    "typing_rhythm_std": 2.1,  # suspiciously machine-like (baseline 12.0)
+                    "hold_time_avg": 38.0,  # half the genuine 80ms
+                    "swipe_velocity_norm": 1.4,  # aggressive swipes (baseline 0.6)
+                    "mouse_velocity_mean": 2.2,  # baseline 0.8
+                },
+            ),
+        },
+    )
     _show("ATO login result", r)
     print("""
   SOC Dashboard → Live Events:
@@ -260,19 +286,27 @@ def scenario_replay() -> None:
     behavior = _behavior(nonce, seq=1, fingerprint=GENUINE_FP, ae_err=0.04)
 
     print("\n  → Sending first request (nonce is valid)…")
-    r1 = _http("POST", "/auth/login", {
-        "username": GENUINE_USER,
-        "password": GENUINE_PASS,
-        "behavior": behavior,
-    })
+    r1 = _http(
+        "POST",
+        "/auth/login",
+        {
+            "username": GENUINE_USER,
+            "password": GENUINE_PASS,
+            "behavior": behavior,
+        },
+    )
     _show("Request 1", r1)
 
     print("\n  → Re-sending SAME nonce (replay attempt)…")
-    r2 = _http("POST", "/auth/login", {
-        "username": GENUINE_USER,
-        "password": GENUINE_PASS,
-        "behavior": behavior,   # identical payload — nonce already consumed
-    })
+    r2 = _http(
+        "POST",
+        "/auth/login",
+        {
+            "username": GENUINE_USER,
+            "password": GENUINE_PASS,
+            "behavior": behavior,  # identical payload — nonce already consumed
+        },
+    )
     _show("Request 2 (replay)", r2)
 
     ok = r2.get("status") in (400, 403) or r2["body"].get("integrity") == "INTEGRITY_REJECT"
@@ -309,7 +343,9 @@ def scenario_coercion() -> None:
     _show("Login result", r_login)
     token = r_login["body"].get("session_token")
     if not token:
-        print("  [!] Login did not return session_token — action was:", r_login["body"].get("action"))
+        print(
+            "  [!] Login did not return session_token — action was:", r_login["body"].get("action")
+        )
         print("      If action=verify, complete OTP via: POST /auth/step-up/verify")
         print("      Then re-run — or use the web app for this scenario.")
         return
@@ -318,16 +354,19 @@ def scenario_coercion() -> None:
     print("\n  Step 2: transfer ₹50,000 to scammer@upi…")
     nonce2 = _get_nonce()
     r_pay = _http(
-        "POST", "/payment/score",
+        "POST",
+        "/payment/score",
         {
             "amount": 50000.0,
             "beneficiary_vpa": SCAMMER_VPA,
             "transfer_type": "UPI",
             "channel": "mobile",
             "behavior": _behavior(
-                nonce2, seq=2, fingerprint=GENUINE_FP,
+                nonce2,
+                seq=2,
+                fingerprint=GENUINE_FP,
                 action_type="TRANSFER",
-                ae_err=0.04,        # still genuine behavior
+                ae_err=0.04,  # still genuine behavior
                 derived={
                     "typing_speed": 4.5,
                     "key_latency_avg": 110.0,
@@ -373,8 +412,10 @@ def scenario_shap() -> None:
     latest = events[0]
     score_id = latest.get("score_id")
     print(f"  Using latest score_id: {score_id}")
-    print(f"  entity_type={latest.get('entity_type')}, action={latest.get('action')}, "
-          f"risk_band={latest.get('risk_band')}, score={latest.get('final_risk_score')}")
+    print(
+        f"  entity_type={latest.get('entity_type')}, action={latest.get('action')}, "
+        f"risk_band={latest.get('risk_band')}, score={latest.get('final_risk_score')}"
+    )
 
     print("\n  Triggering SHAP explanation…")
     r_shap = _http("POST", f"/admin/explain/{score_id}", token=admin_tok)
@@ -383,8 +424,10 @@ def scenario_shap() -> None:
     print(f"  model_version: {body.get('model_version')}")
     print(f"  top_features ({len(body.get('top_features', []))} features):")
     for f in body.get("top_features", [])[:5]:
-        print(f"    {f['feature']:30s}  SHAP={f['shap_value']:+.4f}"
-              + (f"  val={f['feature_value']:.3f}" if f.get("feature_value") is not None else ""))
+        print(
+            f"    {f['feature']:30s}  SHAP={f['shap_value']:+.4f}"
+            + (f"  val={f['feature_value']:.3f}" if f.get("feature_value") is not None else "")
+        )
 
     ai = body.get("ai_explanation")
     if ai:
@@ -437,9 +480,12 @@ def main() -> None:
 """)
 
     ap = argparse.ArgumentParser(description="CogniGuard demo runner")
-    ap.add_argument("--scenario", default="all",
-                    choices=[*SCENARIOS, "all"],
-                    help="Which scenario to run (default: all)")
+    ap.add_argument(
+        "--scenario",
+        default="all",
+        choices=[*SCENARIOS, "all"],
+        help="Which scenario to run (default: all)",
+    )
     ap.add_argument("--base", default=BASE, help="Gateway base URL")
     args = ap.parse_args()
 

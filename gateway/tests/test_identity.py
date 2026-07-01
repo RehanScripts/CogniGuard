@@ -170,8 +170,12 @@ def test_zero_mad_dim_does_not_explode_distance():
 def test_compute_trust_identity_gates_support():
     """A poor identity match cannot be rescued by strong device/AE (multiplicative
     anchor); cold-start (match None) falls back to support only."""
-    strong_support = dict(genuineness=100.0, device_trust=100.0, env_consistency=100.0,
-                          support_weights=POLICY["trust_weights"]["support"])
+    strong_support = dict(
+        genuineness=100.0,
+        device_trust=100.0,
+        env_consistency=100.0,
+        support_weights=POLICY["trust_weights"]["support"],
+    )
     good = identity.compute_trust(behavior_match=95.0, **strong_support)
     impostor = identity.compute_trust(behavior_match=20.0, **strong_support)
     coldstart = identity.compute_trust(behavior_match=None, **strong_support)
@@ -283,7 +287,9 @@ def test_enrolled_match_allows_low_band():
     base = _baseline()
     result = stack.score(
         _enrolled_bundle(BehaviorFeatures(), base),  # all-zero vector == baseline median
-        policy=POLICY, registry=_registry(), redis=_REDIS_LOWANOM,
+        policy=POLICY,
+        registry=_registry(),
+        redis=_REDIS_LOWANOM,
     )
     assert result.behavior_match_score is not None and result.behavior_match_score > 90
     assert result.risk_band == "low"
@@ -296,7 +302,9 @@ def test_enrolled_mismatch_escalates_with_reason_code():
     impostor = BehaviorFeatures(typing_speed=50.0)  # far from the all-zero baseline
     result = stack.score(
         _enrolled_bundle(impostor, base),
-        policy=POLICY, registry=_registry(), redis=_REDIS_LOWANOM,
+        policy=POLICY,
+        registry=_registry(),
+        redis=_REDIS_LOWANOM,
     )
     assert result.behavior_match_score < 40
     assert result.risk_band == "very_high"
@@ -308,10 +316,18 @@ def test_ae_stays_active_degraded_genuineness_lowers_trust_and_feeds_xgboost():
     (high recon error -> high bscore -> low genuineness) reduces the Trust Score, AND the
     higher bscore still flows into XGBoost (transaction_score rises)."""
     base = _baseline()
-    good = stack.score(_enrolled_bundle(BehaviorFeatures(), base, recon=0.0),
-                       policy=POLICY, registry=_registry(), redis=_REDIS_LOWANOM)
-    degraded = stack.score(_enrolled_bundle(BehaviorFeatures(), base, recon=20.0),
-                           policy=POLICY, registry=_registry(), redis=_REDIS_LOWANOM)
+    good = stack.score(
+        _enrolled_bundle(BehaviorFeatures(), base, recon=0.0),
+        policy=POLICY,
+        registry=_registry(),
+        redis=_REDIS_LOWANOM,
+    )
+    degraded = stack.score(
+        _enrolled_bundle(BehaviorFeatures(), base, recon=20.0),
+        policy=POLICY,
+        registry=_registry(),
+        redis=_REDIS_LOWANOM,
+    )
 
     assert good.behavior_match_score == pytest.approx(  # same identity
         degraded.behavior_match_score

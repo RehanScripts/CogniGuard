@@ -33,14 +33,12 @@ from ..models.session import LoginEvent, Session as SessionModel
 from ..models.user import Account, User
 from ..schemas.auth import (
     ConsentRequest,
-    EmailVerifyRequest,
     LoginRequest,
     NonceResponse,
     RegisterRequest,
     StepUpVerifyRequest,
 )
 
-logger = logging.getLogger(__name__)
 from ..schemas.decision import DecisionResponse, Hardening
 from ..schemas.features import FeatureReadContext
 from ..schemas.scoring import ReasonCode
@@ -61,6 +59,8 @@ from .adaptive_auth import accepts_assertion, select_factor
 from .otp import generate_otp, send_otp_email, verify_otp
 from .decision_engine import decide
 from .policy import active_policy
+
+logger = logging.getLogger(__name__)
 
 QUARANTINE_DAYS = 7
 
@@ -291,7 +291,9 @@ def login(
         behavior=req.behavior, device_id=str(device.device_id), session_id=kafka_session_id
     )
     bundle = feature_reader.read_bundle(
-        str(user.user_id), ctx, redis=redis,
+        str(user.user_id),
+        ctx,
+        redis=redis,
         device_trust_budgets=policy.get("device_trust"),
     )
     bundle.login_failure_count = _pre_login_failures
@@ -330,9 +332,7 @@ def login(
     if consent.is_capture_allowed(user):
         required = enrollment.min_sessions(policy)
         if enrollment.is_enrolled(str(user.user_id), redis=redis) or decision.action == "block":
-            enroll_progress = enrollment.progress(
-                str(user.user_id), required=required, redis=redis
-            )
+            enroll_progress = enrollment.progress(str(user.user_id), required=required, redis=redis)
         else:
             enroll_progress = enrollment.record(
                 str(user.user_id),

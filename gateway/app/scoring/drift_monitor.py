@@ -27,20 +27,27 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_PSI_ALERT_THRESHOLD = 0.2   # industry standard: >0.2 = significant drift
-_PSI_WARN_THRESHOLD = 0.1    # 0.1–0.2 = moderate, worth watching
-_N_BINS = 10                 # PSI histogram bins
+_PSI_ALERT_THRESHOLD = 0.2  # industry standard: >0.2 = significant drift
+_PSI_WARN_THRESHOLD = 0.1  # 0.1–0.2 = moderate, worth watching
+_N_BINS = 10  # PSI histogram bins
 
 BEHAVIOR_FEATURES = [
-    "typing_speed", "key_latency_avg", "typing_rhythm_std", "hold_time_avg",
-    "swipe_velocity_norm", "swipe_angle_dev", "touch_pressure_avg",
-    "acceleration_variance", "mouse_velocity_mean",
+    "typing_speed",
+    "key_latency_avg",
+    "typing_rhythm_std",
+    "hold_time_avg",
+    "swipe_velocity_norm",
+    "swipe_angle_dev",
+    "touch_pressure_avg",
+    "acceleration_variance",
+    "mouse_velocity_mean",
 ]
 
 
 # ---------------------------------------------------------------------------
 #  PSI / KS helpers
 # ---------------------------------------------------------------------------
+
 
 def _psi(expected: list[float], actual: list[float], n_bins: int = _N_BINS) -> float:
     """Population Stability Index between two 1-D value lists."""
@@ -53,7 +60,6 @@ def _psi(expected: list[float], actual: list[float], n_bins: int = _N_BINS) -> f
         return 0.0
 
     step = (hi - lo) / n_bins
-    edges = [lo + i * step for i in range(n_bins + 1)]
 
     def _hist(vals: list[float]) -> list[float]:
         counts = [0] * n_bins
@@ -95,6 +101,7 @@ def _ks_pvalue(a: list[float], b: list[float]) -> float:
 #  S3 snapshot reading
 # ---------------------------------------------------------------------------
 
+
 def _load_s3_snapshots(
     s3_client: Any,
     bucket: str,
@@ -105,7 +112,9 @@ def _load_s3_snapshots(
     records: list[dict] = []
     try:
         paginator = s3_client.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=bucket, Prefix=prefix, PaginationConfig={"MaxItems": max_keys}):
+        for page in paginator.paginate(
+            Bucket=bucket, Prefix=prefix, PaginationConfig={"MaxItems": max_keys}
+        ):
             for obj in page.get("Contents", []):
                 try:
                     body = s3_client.get_object(Bucket=bucket, Key=obj["Key"])["Body"].read()
@@ -136,6 +145,7 @@ def _extract_behavior_values(records: list[dict]) -> dict[str, list[float]]:
 #  Label scanning (HITL-written labels from D6)
 # ---------------------------------------------------------------------------
 
+
 def _count_new_fraud_labels(s3_client: Any, bucket: str, since_key: str | None) -> int:
     """Count confirmed_fraud label objects in s3://labels/confirmed_fraud/ written
     since `since_key` (lexicographic order). Used to trigger a retrain suggestion."""
@@ -154,6 +164,7 @@ def _count_new_fraud_labels(s3_client: Any, bucket: str, since_key: str | None) 
 # ---------------------------------------------------------------------------
 #  Main entry point
 # ---------------------------------------------------------------------------
+
 
 def run_drift_check(
     s3_client: Any,
@@ -189,7 +200,11 @@ def run_drift_check(
         act = recent_vals[feat]
         psi = _psi(exp, act)
         ks_p = _ks_pvalue(exp, act)
-        level = "ok" if psi < _PSI_WARN_THRESHOLD else ("warn" if psi < _PSI_ALERT_THRESHOLD else "alert")
+        level = (
+            "ok"
+            if psi < _PSI_WARN_THRESHOLD
+            else ("warn" if psi < _PSI_ALERT_THRESHOLD else "alert")
+        )
         feature_stats[feat] = {"psi": round(psi, 4), "ks_p": round(ks_p, 4), "level": level}
         if level == "alert":
             drifted_features.append(feat)
@@ -225,12 +240,15 @@ def run_drift_check(
 #  CLI
 # ---------------------------------------------------------------------------
 
+
 def _main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Run a one-shot feature drift check.")
     parser.add_argument("--baseline-prefix", required=True, help="S3 prefix for baseline snapshots")
-    parser.add_argument("--recent-prefix", default=None, help="S3 prefix for recent snapshots (default: today)")
+    parser.add_argument(
+        "--recent-prefix", default=None, help="S3 prefix for recent snapshots (default: today)"
+    )
     parser.add_argument("--bucket", default=os.environ.get("S3_BUCKET", "cogniguard"))
     parser.add_argument("--n-recent", type=int, default=1000)
     args = parser.parse_args()

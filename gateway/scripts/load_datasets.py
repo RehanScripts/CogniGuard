@@ -32,7 +32,9 @@ def load_hmog() -> str:
 
 
 def load_inb() -> str:
-    sessions = inb.session_features(inb.load(_path("INB_REQ_LOG.csv")), odd_time_hours=ODD_TIME_HOURS)
+    sessions = inb.session_features(
+        inb.load(_path("INB_REQ_LOG.csv")), odd_time_hours=ODD_TIME_HOURS
+    )
     return write_parquet(sessions, f"{PREFIX}/inb/sessions.parquet")
 
 

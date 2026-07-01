@@ -91,7 +91,7 @@ export default function Profile() {
                 <div className="space-y-4">
                   {[
                     { icon: User, label: "Full Name", value: profile?.full_name ?? "--" },
-                    { icon: Mail, label: "Email Address", value: profile?.email ? `${profile.email.slice(0, 3)}***${profile.email.slice(profile.email.indexOf("@"))}` : "--" },
+                    { icon: Mail, label: "Email Address", value: profile?.masked_email ?? "--" },
                     { icon: User, label: "Username", value: profile?.customer_ref ?? state.username ?? "--" },
                     { icon: Building2, label: "Customer Reference", value: profile?.customer_ref ?? "--" },
                   ].map(({ icon: Icon, label, value }) => (

@@ -40,6 +40,13 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["app"]
 
+[tool.pytest.ini_options]
+# `training/` lives at the repo root, a sibling of `gateway/` -- deployment mounts it
+# into the container at /app/training (docker-compose.yml) so `import training.*` in
+# app/schemas/features.py and app/routers/admin.py resolves; pytest needs the same repo
+# root on sys.path when it runs with cwd=gateway/ (as CI and `python -m pytest` do).
+pythonpath = [".."]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

@@ -39,7 +39,9 @@ def _now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
-def _signed_behavior(client: TestClient, *, seq: int, device_fp: str, action_type: str = "LOGIN") -> dict:
+def _signed_behavior(
+    client: TestClient, *, seq: int, device_fp: str, action_type: str = "LOGIN"
+) -> dict:
     nonce = client.get("/api/v1/auth/nonce").json()["nonce"]
     payload = BehaviorPayload(
         channel="web",
@@ -48,10 +50,21 @@ def _signed_behavior(client: TestClient, *, seq: int, device_fp: str, action_typ
         seq=seq,
         ts=_now_iso(),
         integrity_sig="placeholder",
-        device=DeviceInfo(fingerprint=device_fp, ua="pytest", screen="1920x1080", timezone="Asia/Kolkata", language="en-IN", platform="web"),
+        device=DeviceInfo(
+            fingerprint=device_fp,
+            ua="pytest",
+            screen="1920x1080",
+            timezone="Asia/Kolkata",
+            language="en-IN",
+            platform="web",
+        ),
         action=ActionBlock(type=action_type),
         keystroke=KeystrokeBlock(
-            events=[KeyEvent(key="x", down=10, up=90), KeyEvent(key="x", down=200, up=290), KeyEvent(key="x", down=420, up=500)],
+            events=[
+                KeyEvent(key="x", down=10, up=90),
+                KeyEvent(key="x", down=200, up=290),
+                KeyEvent(key="x", down=420, up=500),
+            ],
             field_id="username",
         ),
     )
@@ -63,7 +76,8 @@ def _register_and_consent(client: TestClient, username: str, password: str) -> N
     r = client.post("/api/v1/auth/register", json={"username": username, "password": password})
     assert r.status_code == 201, r.text
     r2 = client.post(
-        "/api/v1/auth/consent", json={"username": username, "action": "GRANT", "consent_version": "v1"}
+        "/api/v1/auth/consent",
+        json={"username": username, "action": "GRANT", "consent_version": "v1"},
     )
     assert r2.status_code == 200, r2.text
 
@@ -71,11 +85,17 @@ def _register_and_consent(client: TestClient, username: str, password: str) -> N
 def _logged_in_token(client: TestClient, username: str, device_fp: str) -> str | None:
     r = client.post("/api/v1/auth/register", json={"username": username, "password": PASSWORD})
     assert r.status_code == 201, r.text
-    r2 = client.post("/api/v1/auth/consent", json={"username": username, "action": "GRANT", "consent_version": "v1"})
+    r2 = client.post(
+        "/api/v1/auth/consent",
+        json={"username": username, "action": "GRANT", "consent_version": "v1"},
+    )
     assert r2.status_code == 200, r2.text
 
     behavior = _signed_behavior(client, seq=1, device_fp=device_fp)
-    r3 = client.post("/api/v1/auth/login", json={"username": username, "password": PASSWORD, "behavior": behavior})
+    r3 = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": PASSWORD, "behavior": behavior},
+    )
     assert r3.status_code == 200, r3.text
     body = r3.json()
     return body["session_token"] if body["action"] == "allow" else None
@@ -96,7 +116,9 @@ def test_genuine_small_transfer_returns_well_formed_response(client, username):
     device_fp = f"device-{username}"
     token = _logged_in_token(client, username, device_fp)
     if token is None:
-        pytest.skip("login did not return allow with the current model state -- can't get a session")
+        pytest.skip(
+            "login did not return allow with the current model state -- can't get a session"
+        )
 
     behavior = _signed_behavior(client, seq=2, device_fp=device_fp, action_type="TRANSFER")
     r = client.post(
@@ -115,7 +137,9 @@ def test_new_payee_high_value_populates_txn_controls_when_flagged(client, userna
     device_fp = f"device-{username}"
     token = _logged_in_token(client, username, device_fp)
     if token is None:
-        pytest.skip("login did not return allow with the current model state -- can't get a session")
+        pytest.skip(
+            "login did not return allow with the current model state -- can't get a session"
+        )
 
     behavior = _signed_behavior(client, seq=2, device_fp=device_fp, action_type="TRANSFER")
     body = {
@@ -125,7 +149,9 @@ def test_new_payee_high_value_populates_txn_controls_when_flagged(client, userna
         "channel": "web",
         "behavior": behavior,
     }
-    r = client.post("/api/v1/payment/score", json=body, headers={"Authorization": f"Bearer {token}"})
+    r = client.post(
+        "/api/v1/payment/score", json=body, headers={"Authorization": f"Bearer {token}"}
+    )
     assert r.status_code == 200
     resp = r.json()
 
@@ -154,7 +180,9 @@ def test_payment_accumulates_into_the_same_ae_sequence_buffer_login_started(clie
     device_fp = f"device-{username}"
     token = _logged_in_token(client, username, device_fp)
     if token is None:
-        pytest.skip("login did not return allow with the current model state -- can't get a session")
+        pytest.skip(
+            "login did not return allow with the current model state -- can't get a session"
+        )
 
     from app.utils import security
 
@@ -275,15 +303,18 @@ def test_payment_step_up_exhausted_attempts_blocks_the_pending_transaction(clien
 
     # Default policy max_attempts=3: first two fail retryably, the third blocks.
     first = client.post(
-        "/api/v1/payment/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": ""}
+        "/api/v1/payment/step-up/verify",
+        json={"challenge_id": challenge_id, "otp_or_assertion": ""},
     )
     assert first.status_code == 401 and first.json()["action"] == "verify"
     second = client.post(
-        "/api/v1/payment/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": ""}
+        "/api/v1/payment/step-up/verify",
+        json={"challenge_id": challenge_id, "otp_or_assertion": ""},
     )
     assert second.status_code == 401 and second.json()["action"] == "verify"
     third = client.post(
-        "/api/v1/payment/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": ""}
+        "/api/v1/payment/step-up/verify",
+        json={"challenge_id": challenge_id, "otp_or_assertion": ""},
     )
     assert third.status_code == 401 and third.json()["action"] == "block"
 

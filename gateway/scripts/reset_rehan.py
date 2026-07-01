@@ -68,9 +68,19 @@ def reset_user(username: str, *, avg_amount: float = 5000.0, std_amount: float =
 
         # ── Delete / clear ────────────────────────────────────────────────────
         to_delete = [
-            profile_key, known_devices_key, known_geos_key, known_benef_key,
-            vel_1h, vel_24h, amount_sum, new_payees, risk_baseline,
-            ae_calib, identity_baseline, embed_cache, enroll_buffer,
+            profile_key,
+            known_devices_key,
+            known_geos_key,
+            known_benef_key,
+            vel_1h,
+            vel_24h,
+            amount_sum,
+            new_payees,
+            risk_baseline,
+            ae_calib,
+            identity_baseline,
+            embed_cache,
+            enroll_buffer,
         ]
 
         # seq_keys are per-session, not per-user -- we only delete them if they are
@@ -98,8 +108,10 @@ def reset_user(username: str, *, avg_amount: float = 5000.0, std_amount: float =
                 "std_amount_30d": str(std_amount),
             },
         )
-        print(f"Set realistic spending profile → avg_amount_30d=₹{avg_amount:,.0f}, "
-              f"std_amount_30d=₹{std_amount:,.0f}")
+        print(
+            f"Set realistic spending profile → avg_amount_30d=₹{avg_amount:,.0f}, "
+            f"std_amount_30d=₹{std_amount:,.0f}"
+        )
 
         print(f"Deleted {deleted} Redis key(s):")
         for k in keys_deleted:
@@ -120,10 +132,12 @@ def reset_user(username: str, *, avg_amount: float = 5000.0, std_amount: float =
 def main() -> None:
     parser = argparse.ArgumentParser(description="Reset a user's behavioral/transaction state")
     parser.add_argument("--username", default="rehan", help="Username to reset (default: rehan)")
-    parser.add_argument("--avg-amount", type=float, default=5000.0,
-                        help="avg_amount_30d to seed (default: 5000)")
-    parser.add_argument("--std-amount", type=float, default=2000.0,
-                        help="std_amount_30d to seed (default: 2000)")
+    parser.add_argument(
+        "--avg-amount", type=float, default=5000.0, help="avg_amount_30d to seed (default: 5000)"
+    )
+    parser.add_argument(
+        "--std-amount", type=float, default=2000.0, help="std_amount_30d to seed (default: 2000)"
+    )
     args = parser.parse_args()
     reset_user(args.username, avg_amount=args.avg_amount, std_amount=args.std_amount)
 

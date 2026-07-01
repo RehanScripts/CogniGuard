@@ -4,13 +4,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import Security from "./Security";
 
-const { getSecuritySettingsMock } = vi.hoisted(() => ({ getSecuritySettingsMock: vi.fn() }));
+const { getSecuritySettingsMock, getLoginHistoryMock } = vi.hoisted(() => ({
+  getSecuritySettingsMock: vi.fn(),
+  getLoginHistoryMock: vi.fn(),
+}));
 vi.mock("../api", async () => {
   const actual = await vi.importActual<typeof import("../api")>("../api");
   return {
     ...actual,
     getSessionToken: () => "fake-token",
     getSecuritySettings: getSecuritySettingsMock,
+    getLoginHistory: getLoginHistoryMock,
   };
 });
 
@@ -23,6 +27,7 @@ describe("Security", () => {
         active_sessions: [{ session_id: "s1", device_label: "Chrome on Windows", location: "Mumbai, IN" }],
       },
     });
+    getLoginHistoryMock.mockResolvedValue({ status: 200, body: [] });
 
     render(
       <MemoryRouter initialEntries={["/security"]}>
@@ -41,6 +46,7 @@ describe("Security", () => {
       status: 200,
       body: { trusted_devices: [], active_sessions: [] },
     });
+    getLoginHistoryMock.mockResolvedValue({ status: 200, body: [] });
 
     render(
       <MemoryRouter initialEntries={["/security"]}>

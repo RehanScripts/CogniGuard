@@ -38,7 +38,9 @@ def _now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
-def _signed_behavior(client: TestClient, *, seq: int, device_fp: str, action_type: str = "LOGIN") -> dict:
+def _signed_behavior(
+    client: TestClient, *, seq: int, device_fp: str, action_type: str = "LOGIN"
+) -> dict:
     nonce = client.get("/api/v1/auth/nonce").json()["nonce"]
     payload = BehaviorPayload(
         channel="web",
@@ -47,10 +49,21 @@ def _signed_behavior(client: TestClient, *, seq: int, device_fp: str, action_typ
         seq=seq,
         ts=_now_iso(),
         integrity_sig="placeholder",
-        device=DeviceInfo(fingerprint=device_fp, ua="pytest", screen="1920x1080", timezone="Asia/Kolkata", language="en-IN", platform="web"),
+        device=DeviceInfo(
+            fingerprint=device_fp,
+            ua="pytest",
+            screen="1920x1080",
+            timezone="Asia/Kolkata",
+            language="en-IN",
+            platform="web",
+        ),
         action=ActionBlock(type=action_type),
         keystroke=KeystrokeBlock(
-            events=[KeyEvent(key="x", down=10, up=90), KeyEvent(key="x", down=200, up=290), KeyEvent(key="x", down=420, up=500)],
+            events=[
+                KeyEvent(key="x", down=10, up=90),
+                KeyEvent(key="x", down=200, up=290),
+                KeyEvent(key="x", down=420, up=500),
+            ],
             field_id="username",
         ),
     )
@@ -59,7 +72,10 @@ def _signed_behavior(client: TestClient, *, seq: int, device_fp: str, action_typ
 
 
 def _register_and_consent(client: TestClient, username: str, password: str) -> None:
-    r = client.post("/api/v1/auth/register", json={"username": username, "password": password, "email": f"{username}@test.local"})
+    r = client.post(
+        "/api/v1/auth/register",
+        json={"username": username, "password": password, "email": f"{username}@test.local"},
+    )
     assert r.status_code == 201, r.text
     data = r.json()
     challenge_id = data["challenge_id"]
@@ -73,7 +89,8 @@ def _register_and_consent(client: TestClient, username: str, password: str) -> N
     )
     assert r_verify.status_code == 200, r_verify.text
     r2 = client.post(
-        "/api/v1/auth/consent", json={"username": username, "action": "GRANT", "consent_version": "v1"}
+        "/api/v1/auth/consent",
+        json={"username": username, "action": "GRANT", "consent_version": "v1"},
     )
     assert r2.status_code == 200, r2.text
 
@@ -96,7 +113,10 @@ def test_login_returns_well_formed_decision_response_with_consequences(client, u
     _register_and_consent(client, username, PASSWORD)
     behavior = _signed_behavior(client, seq=1, device_fp=f"device-{username}")
 
-    r = client.post("/api/v1/auth/login", json={"username": username, "password": PASSWORD, "behavior": behavior})
+    r = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": PASSWORD, "behavior": behavior},
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["action"] in ("allow", "verify", "block")
@@ -129,37 +149,51 @@ def test_replayed_nonce_rejected(client, username):
     _register_and_consent(client, username, PASSWORD)
     behavior = _signed_behavior(client, seq=1, device_fp=f"device-{username}")
 
-    r1 = client.post("/api/v1/auth/login", json={"username": username, "password": PASSWORD, "behavior": behavior})
+    r1 = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": PASSWORD, "behavior": behavior},
+    )
     assert r1.status_code == 200  # first use consumes the nonce
 
-    r2 = client.post("/api/v1/auth/login", json={"username": username, "password": PASSWORD, "behavior": behavior})
+    r2 = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": PASSWORD, "behavior": behavior},
+    )
     assert r2.status_code == 400
     assert r2.json()["integrity"] == "INTEGRITY_REJECT"
 
 
 def test_lockout_after_five_failures_other_ip_device_unaffected(username):
-    with TestClient(app, client=("10.50.1.1", 12345)) as attacker, TestClient(app, client=("10.50.1.2", 12345)) as clean:
+    with (
+        TestClient(app, client=("10.50.1.1", 12345)) as attacker,
+        TestClient(app, client=("10.50.1.2", 12345)) as clean,
+    ):
         _register_and_consent(attacker, username, PASSWORD)
         device_fp = f"device-{username}"
 
         for i in range(5):
             behavior = _signed_behavior(attacker, seq=i + 1, device_fp=device_fp)
             r = attacker.post(
-                "/api/v1/auth/login", json={"username": username, "password": "WrongPassword!", "behavior": behavior}
+                "/api/v1/auth/login",
+                json={"username": username, "password": "WrongPassword!", "behavior": behavior},
             )
             assert r.json()["action"] == "block"
 
         behavior_locked = _signed_behavior(attacker, seq=6, device_fp=device_fp)
         r_locked = attacker.post(
-            "/api/v1/auth/login", json={"username": username, "password": "WrongPassword!", "behavior": behavior_locked}
+            "/api/v1/auth/login",
+            json={"username": username, "password": "WrongPassword!", "behavior": behavior_locked},
         )
         assert r_locked.status_code == 423
 
         clean_username = f"{username}-clean"
         _register_and_consent(clean, clean_username, PASSWORD)
-        clean_behavior = _signed_behavior(clean, seq=1, device_fp=f"clean-device-{uuid.uuid4().hex}")
+        clean_behavior = _signed_behavior(
+            clean, seq=1, device_fp=f"clean-device-{uuid.uuid4().hex}"
+        )
         r_clean = clean.post(
-            "/api/v1/auth/login", json={"username": clean_username, "password": PASSWORD, "behavior": clean_behavior}
+            "/api/v1/auth/login",
+            json={"username": clean_username, "password": PASSWORD, "behavior": clean_behavior},
         )
         assert r_clean.status_code == 200
         assert r_clean.json()["action"] in ("allow", "verify")
@@ -175,7 +209,8 @@ def test_login_session_id_feeds_the_ae_sequence_buffer(client, username):
     behavior = _signed_behavior(client, seq=1, device_fp=f"device-{username}")
 
     r = client.post(
-        "/api/v1/auth/login", json={"username": username, "password": PASSWORD, "behavior": behavior}
+        "/api/v1/auth/login",
+        json={"username": username, "password": PASSWORD, "behavior": behavior},
     )
     assert r.status_code == 200
     body = r.json()
@@ -189,7 +224,9 @@ def test_login_session_id_feeds_the_ae_sequence_buffer(client, username):
     assert redis_client.llen(f"behavior:{session_id}:seq") == 1
 
 
-def test_login_verify_branch_carries_kafka_session_id_into_stepup_state(client, username, monkeypatch):
+def test_login_verify_branch_carries_kafka_session_id_into_stepup_state(
+    client, username, monkeypatch
+):
     """Same Phase 15 follow-up as above, for the `verify` branch: the `stepup:{id}`
     Redis blob now carries `kafka_session_id` so `verify_step_up` can assign the
     *same* session id login already scored under, instead of a fresh one that would
@@ -203,7 +240,8 @@ def test_login_verify_branch_carries_kafka_session_id_into_stepup_state(client, 
     _register_and_consent(client, username, PASSWORD)
     behavior = _signed_behavior(client, seq=1, device_fp=f"device-{username}")
     r = client.post(
-        "/api/v1/auth/login", json={"username": username, "password": PASSWORD, "behavior": behavior}
+        "/api/v1/auth/login",
+        json={"username": username, "password": PASSWORD, "behavior": behavior},
     )
     assert r.status_code == 200
     body = r.json()
@@ -221,7 +259,8 @@ def test_login_verify_branch_carries_kafka_session_id_into_stepup_state(client, 
     actual_otp = otp_raw.decode() if isinstance(otp_raw, bytes) else otp_raw
 
     good = client.post(
-        "/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": actual_otp}
+        "/api/v1/auth/step-up/verify",
+        json={"challenge_id": challenge_id, "otp_or_assertion": actual_otp},
     )
     assert good.status_code == 200
     from app.utils import security
@@ -235,7 +274,9 @@ def test_step_up_verify_with_demo_otp_completes_login(client, username):
     db = SessionLocal()
     try:
         user = db.scalar(select(User).where(User.customer_ref == username))
-        device = fingerprint.get_or_create_device(db, DeviceInfo(fingerprint=f"stepup-device-{username}"))
+        device = fingerprint.get_or_create_device(
+            db, DeviceInfo(fingerprint=f"stepup-device-{username}")
+        )
         db.commit()
 
         challenge = AuthChallenge(challenge_type="OTP", status="issued")
@@ -264,13 +305,19 @@ def test_step_up_verify_with_demo_otp_completes_login(client, username):
     finally:
         db.close()
 
-    bad = client.post("/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": "000000"})
+    bad = client.post(
+        "/api/v1/auth/step-up/verify",
+        json={"challenge_id": challenge_id, "otp_or_assertion": "000000"},
+    )
     assert bad.status_code == 401
     # Re-seed OTP after the bad attempt consumed it (verify_otp only deletes on success,
     # but a wrong code leaves the key intact — still, re-seed to be explicit).
     redis_client.set(f"otp:{challenge_id}", "123456", ex=300)
 
-    good = client.post("/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": "123456"})
+    good = client.post(
+        "/api/v1/auth/step-up/verify",
+        json={"challenge_id": challenge_id, "otp_or_assertion": "123456"},
+    )
     assert good.status_code == 200
     body = good.json()
     assert body["action"] == "allow"
@@ -338,7 +385,8 @@ def test_step_up_exhausted_attempts_escalate_to_block_and_open_case(client, user
     # Challenge consumed -> a further attempt can't reuse it.
     assert redis_client.get(f"stepup:{challenge_id}") is None
     again = client.post(
-        "/api/v1/auth/step-up/verify", json={"challenge_id": challenge_id, "otp_or_assertion": "123456"}
+        "/api/v1/auth/step-up/verify",
+        json={"challenge_id": challenge_id, "otp_or_assertion": "123456"},
     )
     assert again.status_code == 404
 

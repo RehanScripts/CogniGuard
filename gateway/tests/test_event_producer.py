@@ -15,7 +15,6 @@ from app.schemas.topics import (
 )
 from app.services import event_producer as ep
 
-
 # --- unit: build_* payloads validate against the topic schemas (no broker) ------
 
 
