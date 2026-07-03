@@ -3,7 +3,6 @@ package com.cogniguard.demoapp
 import android.content.Intent
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import androidx.core.content.ContextCompat
 import com.cogniguard.capturesdk.net.CogniGuardClient
@@ -15,7 +14,8 @@ import kotlinx.coroutines.withContext
 /** Customer profile screen (Phase 31) -- parity with web-app/src/pages/Profile.tsx.
  * Shows avatar initials, personal info, linked accounts, and a security-settings
  * navigation shortcut. Reads /api/v1/banking/profile + /api/v1/banking/accounts. */
-class ProfileActivity : AppCompatActivity() {
+class ProfileActivity : MonitoredSessionActivity() {
+    override val monitoredPage = "profile"
 
     companion object {
         const val EXTRA_SESSION_TOKEN = "session_token"

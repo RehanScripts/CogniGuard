@@ -4,7 +4,6 @@ import android.os.Bundle
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 import com.cogniguard.capturesdk.net.CogniGuardClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +15,9 @@ import kotlinx.coroutines.withContext
  * model name, raw score, or AE/IF metric: [trustScore]/[behaviorMatch]/[deviceTrust]
  * (passed in from the login decision) are only ever mapped to a coarse good/neutral
  * label, never printed as numbers, on this screen. */
-class SecurityCenterActivity : AppCompatActivity() {
+class SecurityCenterActivity : MonitoredSessionActivity() {
+    override val monitoredPage = "security_center"
+
     private lateinit var client: CogniGuardClient
     private var sessionToken: String? = null
     private var username: String = "genuine"

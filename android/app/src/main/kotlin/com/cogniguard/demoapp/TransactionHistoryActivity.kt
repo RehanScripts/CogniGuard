@@ -3,7 +3,6 @@ package com.cogniguard.demoapp
 import android.os.Bundle
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 import com.cogniguard.capturesdk.net.CogniGuardClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,7 +11,9 @@ import kotlinx.coroutines.withContext
 
 /** Transaction history + beneficiaries (Phase 31, optional Dashboard sub-screen) --
  * parity with `web-app/src/pages/Transactions.tsx`, same real `/api/v1/banking` data. */
-class TransactionHistoryActivity : AppCompatActivity() {
+class TransactionHistoryActivity : MonitoredSessionActivity() {
+    override val monitoredPage = "transactions"
+
     private lateinit var client: CogniGuardClient
     private var sessionToken: String? = null
     private var username: String = "genuine"

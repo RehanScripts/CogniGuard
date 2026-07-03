@@ -8,7 +8,6 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import com.google.android.material.card.MaterialCardView
@@ -40,7 +39,9 @@ import java.time.Instant
  * real `BiometricPrompt`/demo-OTP step-up against `/api/v1/payment/step-up/verify`
  * (parity with `LoginActivity.handleVerify` and web's `StepUp.tsx` transaction branch)
  * before any `txn_controls` panel is shown. */
-class TransferActivity : AppCompatActivity() {
+class TransferActivity : MonitoredSessionActivity() {
+    override val monitoredPage = "transfer"
+
     private lateinit var client: CogniGuardClient
     private lateinit var touchCapture: TouchCapture
     private lateinit var motionCapture: MotionCapture
