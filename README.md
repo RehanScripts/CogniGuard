@@ -38,18 +38,15 @@
 
 ## Screenshots
 
-<table>
-  <tr>
-    <td align="center">
-      <img src="docs/assets/screenshot-mobile-banking.png" alt="Mobile Banking App" width="320"/><br/>
-      <sub><b>Customer-Facing Mobile Banking</b></sub>
-    </td>
-    <td align="center">
-      <img src="docs/assets/screenshot-soc-dashboard.png" alt="SOC Dashboard" width="320"/><br/>
-      <sub><b>SOC Fraud-Ops Dashboard</b></sub>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/assets/screenshot-mobile-banking.png" alt="Mobile Banking App" width="320"/><br/>
+  <sub><b>Customer-Facing Mobile Banking</b></sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-soc-dashboard.png" alt="SOC Dashboard" width="320"/><br/>
+  <sub><b>SOC Fraud-Ops Dashboard</b></sub>
+</p>
 
 ---
 
