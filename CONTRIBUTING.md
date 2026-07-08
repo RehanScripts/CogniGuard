@@ -7,7 +7,7 @@ Thank you for your interest in contributing. This document covers the developmen
 ## Development Setup
 
 ```bash
-git clone https://github.com/xemorph64/Cogni_Guard.git
+git clone https://github.com/RehanScripts/CogniGuard.git
 cd Cogni_Guard
 cp .env.example .env
 docker compose up --build -d
